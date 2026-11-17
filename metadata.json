@@ -1,0 +1,6 @@
+{
+  "name": "Cadence — Personal Assistant & Workspace",
+  "description": "Local-first personal assistant with voice scheduling, Eisenhower Matrix, Kanban & Gantt planning, Pomodoro focus, finance & shopping trackers, fitness analytics, and encrypted Google Workspace sync.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
