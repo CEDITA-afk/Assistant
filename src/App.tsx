@@ -8,15 +8,18 @@ import {
   Lock,
   Menu,
   Moon,
+  Search,
   ShieldCheck,
   StickyNote,
   Sun,
+  Timer,
   Wallet,
   X,
 } from 'lucide-react';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { FinanceShoppingView } from './components/FinanceShoppingView';
 import { FitnessHealthView } from './components/FitnessHealthView';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { NotesDriveView } from './components/NotesDriveView';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -68,9 +71,15 @@ import type {
   ReminderItem,
   ShoppingItem,
   TaskItem,
+  VoiceLanguage,
   WorkoutEntry,
   WorkspaceData,
 } from './types/workspace';
+import {
+  formatMoney,
+  formatShortDateIT,
+  WORKOUT_LABELS,
+} from './utils/formatters';
 import { subscribeHapticPulse, triggerHaptic } from './utils/haptics';
 import {
   createSeedWorkspaceData,
@@ -80,13 +89,18 @@ import {
 } from './utils/storage';
 import { parseVoiceCommand } from './utils/voiceParser';
 
-const NAV_ITEMS: Array<{ id: NavSection; label: string; icon: React.ReactNode }> = [
-  { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="h-4 w-4" /> },
-  { id: 'schedule', label: 'Calendar & Voice', icon: <Calendar className="h-4 w-4" /> },
-  { id: 'projects', label: 'Tasks & Projects', icon: <CheckSquare className="h-4 w-4" /> },
-  { id: 'finance', label: 'Budget & Shopping', icon: <Wallet className="h-4 w-4" /> },
-  { id: 'notes', label: 'Notes & Drive', icon: <StickyNote className="h-4 w-4" /> },
-  { id: 'fitness', label: 'Fitness & Health', icon: <Activity className="h-4 w-4" /> },
+const NAV_ITEMS: Array<{
+  id: NavSection;
+  label: string;
+  shortLabel: string;
+  icon: React.ReactNode;
+}> = [
+  { id: 'overview', label: 'Panoramica', shortLabel: 'Oggi', icon: <LayoutDashboard className="h-4 w-4" /> },
+  { id: 'schedule', label: 'Agenda & Voce', shortLabel: 'Agenda', icon: <Calendar className="h-4 w-4" /> },
+  { id: 'projects', label: 'Progetti & Task', shortLabel: 'Progetti', icon: <CheckSquare className="h-4 w-4" /> },
+  { id: 'finance', label: 'Budget & Spesa', shortLabel: 'Budget', icon: <Wallet className="h-4 w-4" /> },
+  { id: 'notes', label: 'Note & Drive', shortLabel: 'Note', icon: <StickyNote className="h-4 w-4" /> },
+  { id: 'fitness', label: 'Salute & Fitness', shortLabel: 'Salute', icon: <Activity className="h-4 w-4" /> },
 ];
 
 export default function App() {
@@ -94,8 +108,9 @@ export default function App() {
   const [section, setSection] = useState<NavSection>('overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
 
-  // Auth & Workspace API state
+  // Stato Auth & Google Workspace API
   const [user, setUser] = useState<User | null>(null);
   const [hasGoogleToken, setHasGoogleToken] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
@@ -125,20 +140,23 @@ export default function App() {
   const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
   const [hapticBanner, setHapticBanner] = useState<string | null>(null);
   const [apiNotice, setApiNotice] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
-  const [pomodoroTrigger, setPomodoroTrigger] = useState<{
-    mode: PomodoroMode;
-    minutes?: number;
-    nonce: number;
-  } | null>(null);
 
-  // Initial local-first load
+  // Stato Pomodoro persistente tra le schede
+  const [pomMode, setPomMode] = useState<PomodoroMode>('focus');
+  const [pomSecondsLeft, setPomSecondsLeft] = useState(25 * 60);
+  const [pomRunning, setPomRunning] = useState(false);
+  const [pomTaskId, setPomTaskId] = useState('');
+  const [pomCompletedCount, setPomCompletedCount] = useState(0);
+
+  // Caricamento iniziale local-first
   useEffect(() => {
     loadWorkspaceData().then((loaded) => {
       setWorkspace(loaded);
+      setPomSecondsLeft((loaded.preferences.pomodoroFocusMin || 25) * 60);
     });
   }, []);
 
-  // Persist workspace locally whenever updated
+  // Salvataggio automatico su localStorage + sincronizzazione tema dark/light
   useEffect(() => {
     if (!workspace) return;
     saveWorkspaceData(workspace);
@@ -148,7 +166,19 @@ export default function App() {
     );
   }, [workspace]);
 
-  // Listen to Firebase Auth state (token remains in memory only)
+  // Scorciatoia Ctrl+K / Cmd+K per Ricerca Globale
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Listener Firebase Auth (token mantenuto solo in memoria)
   useEffect(() => {
     return initGoogleAuth((authUser, tokenReady) => {
       setUser(authUser);
@@ -156,7 +186,7 @@ export default function App() {
     });
   }, []);
 
-  // Visual haptic ripple indicator
+  // Indicatore visivo aptico
   useEffect(() => {
     let timeout: number | undefined;
     const unsub = subscribeHapticPulse((label) => {
@@ -184,10 +214,99 @@ export default function App() {
     [workspace?.preferences.hapticsEnabled, workspace?.preferences.soundEnabled]
   );
 
-  const showNotice = (kind: 'ok' | 'err', msg: string) => {
+  const showNotice = useCallback((kind: 'ok' | 'err', msg: string) => {
     setApiNotice({ kind, msg });
     window.setTimeout(() => setApiNotice(null), 4500);
-  };
+  }, []);
+
+  const getModeDurationSeconds = useCallback(
+    (targetMode: PomodoroMode, prefs?: WorkspaceData['preferences']) => {
+      const p = prefs || workspace?.preferences;
+      if (targetMode === 'focus') return (p?.pomodoroFocusMin ?? 25) * 60;
+      if (targetMode === 'short_break') return (p?.pomodoroShortBreakMin ?? 5) * 60;
+      return (p?.pomodoroLongBreakMin ?? 15) * 60;
+    },
+    [workspace?.preferences]
+  );
+
+  const completePomodoroPhase = useCallback(() => {
+    if (!workspace) return;
+    const mins =
+      pomMode === 'focus'
+        ? workspace.preferences.pomodoroFocusMin
+        : pomMode === 'short_break'
+        ? workspace.preferences.pomodoroShortBreakMin
+        : workspace.preferences.pomodoroLongBreakMin;
+
+    const linkedTask = workspace.tasks.find((t) => t.id === pomTaskId);
+    setWorkspace((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        pomodoroLogs: [
+          {
+            id: `pom-${Date.now()}`,
+            taskId: pomTaskId || undefined,
+            taskTitle: linkedTask?.title,
+            minutes: mins,
+            mode: pomMode,
+            completedAt: new Date().toISOString(),
+          },
+          ...prev.pomodoroLogs,
+        ],
+        tasks:
+          pomMode === 'focus' && pomTaskId
+            ? prev.tasks.map((t) =>
+                t.id === pomTaskId
+                  ? { ...t, pomodoroSessions: t.pomodoroSessions + 1 }
+                  : t
+              )
+            : prev.tasks,
+      };
+    });
+
+    fireHaptic(
+      'pomodoroComplete',
+      pomMode === 'focus'
+        ? `Sessione focus completata (${mins} min)`
+        : 'Pausa terminata — pronto per il focus'
+    );
+
+    setPomRunning(false);
+    if (pomMode === 'focus') {
+      const nextCount = pomCompletedCount + 1;
+      setPomCompletedCount(nextCount);
+      const nextMode: PomodoroMode =
+        nextCount % 4 === 0 ? 'long_break' : 'short_break';
+      setPomMode(nextMode);
+      setPomSecondsLeft(getModeDurationSeconds(nextMode));
+    } else {
+      setPomMode('focus');
+      setPomSecondsLeft(getModeDurationSeconds('focus'));
+    }
+  }, [
+    workspace,
+    pomMode,
+    pomTaskId,
+    pomCompletedCount,
+    fireHaptic,
+    getModeDurationSeconds,
+  ]);
+
+  // Tick timer Pomodoro persistente in background tra tutte le viste
+  useEffect(() => {
+    if (!pomRunning) return;
+    const timer = window.setInterval(() => {
+      setPomSecondsLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [pomRunning]);
+
+  useEffect(() => {
+    if (pomRunning && pomSecondsLeft === 0) {
+      completePomodoroPhase();
+    }
+  }, [pomRunning, pomSecondsLeft, completePomodoroPhase]);
 
   // Auth handlers
   const handleGoogleSignIn = async () => {
@@ -196,8 +315,10 @@ export default function App() {
       const result = await signInWithGoogleWorkspace();
       setUser(result.user);
       setHasGoogleToken(true);
-      showNotice('ok', `Connected Google Workspace as ${result.user.email || result.user.displayName}`);
-      // Auto-load Drive file index & Task lists (read-only operations)
+      showNotice(
+        'ok',
+        `Google Workspace connesso come ${result.user.email || result.user.displayName}`
+      );
       listDriveFiles(result.accessToken)
         .then(setDriveFiles)
         .catch(() => {});
@@ -210,7 +331,9 @@ export default function App() {
     } catch (err) {
       showNotice(
         'err',
-        err instanceof Error ? err.message : 'Google Sign-In failed or was cancelled.'
+        err instanceof Error
+          ? err.message
+          : 'Accesso Google non riuscito o annullato.'
       );
     } finally {
       setSigningIn(false);
@@ -222,12 +345,16 @@ export default function App() {
     setUser(null);
     setHasGoogleToken(false);
     setDriveFiles([]);
-    showNotice('ok', 'Disconnected Google account. Running in Local-Only mode.');
+    showNotice('ok', 'Account Google disconnesso. Modalità Solo Locale attiva.');
   };
 
-  // Helpers to update health log for today
+  // Helper per aggiornare il log salute di oggi
   const mutateTodayHealth = useCallback(
-    (updater: (current: WorkspaceData['healthLogs'][number]) => WorkspaceData['healthLogs'][number]) => {
+    (
+      updater: (
+        current: WorkspaceData['healthLogs'][number]
+      ) => WorkspaceData['healthLogs'][number]
+    ) => {
       const today = getTodayISO();
       setWorkspace((prev) => {
         if (!prev) return prev;
@@ -253,11 +380,12 @@ export default function App() {
     []
   );
 
-  // ---------------- VOICE COMMAND EXECUTION ----------------
+  // ---------------- ESECUZIONE COMANDI VOCALI ----------------
   const handleVoiceCommand = useCallback(
     (transcript: string) => {
       if (!workspace) return;
       const intent = parseVoiceCommand(transcript);
+      const currency = workspace.preferences.currency || 'EUR';
       fireHaptic('voiceCapture');
 
       switch (intent.type) {
@@ -274,8 +402,10 @@ export default function App() {
           setWorkspace((prev) =>
             prev ? { ...prev, events: [...prev.events, newEv] } : prev
           );
-          setVoiceFeedback(`Scheduled "${intent.title}" on ${intent.date} at ${intent.startTime}`);
-          fireHaptic('taskComplete', `Scheduled: ${intent.title}`);
+          setVoiceFeedback(
+            `Evento segnato: "${intent.title}" il ${formatShortDateIT(intent.date)} alle ${intent.startTime}`
+          );
+          fireHaptic('taskComplete', `Evento: ${intent.title}`);
           break;
         }
         case 'reminder': {
@@ -290,8 +420,10 @@ export default function App() {
           setWorkspace((prev) =>
             prev ? { ...prev, reminders: [newRem, ...prev.reminders] } : prev
           );
-          setVoiceFeedback(`Reminder set: "${intent.title}" at ${intent.time}`);
-          fireHaptic('taskComplete', `Reminder added`);
+          setVoiceFeedback(
+            `Promemoria impostato: "${intent.title}" alle ${intent.time}`
+          );
+          fireHaptic('taskComplete', 'Promemoria aggiunto');
           break;
         }
         case 'task': {
@@ -311,8 +443,10 @@ export default function App() {
           setWorkspace((prev) =>
             prev ? { ...prev, tasks: [newTask, ...prev.tasks] } : prev
           );
-          setVoiceFeedback(`Task added to ${intent.quadrant}: "${intent.title}"`);
-          fireHaptic('taskComplete', `Task added (${intent.quadrant})`);
+          setVoiceFeedback(
+            `Task aggiunto in ${intent.quadrant}: "${intent.title}"`
+          );
+          fireHaptic('taskComplete', `Task aggiunto (${intent.quadrant})`);
           break;
         }
         case 'expense': {
@@ -326,10 +460,9 @@ export default function App() {
           setWorkspace((prev) =>
             prev ? { ...prev, expenses: [newExp, ...prev.expenses] } : prev
           );
-          setVoiceFeedback(
-            `Logged $${intent.amount.toFixed(2)} expense (${intent.category})`
-          );
-          fireHaptic('taskComplete', `Logged $${intent.amount.toFixed(2)}`);
+          const amtText = formatMoney(intent.amount, currency);
+          setVoiceFeedback(`Spesa registrata: ${amtText} (${intent.description})`);
+          fireHaptic('taskComplete', `Spesa ${amtText}`);
           break;
         }
         case 'shopping': {
@@ -346,14 +479,16 @@ export default function App() {
               ? { ...prev, shoppingList: [...newItems, ...prev.shoppingList] }
               : prev
           );
-          setVoiceFeedback(`Added ${intent.items.join(', ')} to shopping list`);
-          fireHaptic('taskComplete', 'Added to shopping list');
+          setVoiceFeedback(
+            `Aggiunto alla spesa: ${intent.items.join(', ')}`
+          );
+          fireHaptic('taskComplete', 'Aggiunto alla lista spesa');
           break;
         }
         case 'water': {
           mutateTodayHealth((h) => ({ ...h, waterMl: h.waterMl + intent.ml }));
-          setVoiceFeedback(`Logged ${intent.ml}ml water intake`);
-          fireHaptic('waterLog', `+${intent.ml}ml hydration`);
+          setVoiceFeedback(`Idratazione registrata: +${intent.ml} ml acqua`);
+          fireHaptic('waterLog', `+${intent.ml}ml acqua`);
           break;
         }
         case 'steps': {
@@ -362,21 +497,30 @@ export default function App() {
             steps: h.steps + intent.steps,
             kcalBurned: h.kcalBurned + Math.round(intent.steps * 0.04),
           }));
-          setVoiceFeedback(`Added ${intent.steps.toLocaleString()} steps`);
-          fireHaptic('waterLog', `+${intent.steps.toLocaleString()} steps`);
+          setVoiceFeedback(`Aggiunti ${intent.steps.toLocaleString('it-IT')} passi`);
+          fireHaptic('waterLog', `+${intent.steps.toLocaleString('it-IT')} passi`);
           break;
         }
         case 'pomodoro': {
-          setPomodoroTrigger({
-            mode: intent.mode,
-            minutes: intent.minutes,
-            nonce: Date.now(),
-          });
+          const fallbackMin =
+            intent.mode === 'focus'
+              ? workspace.preferences.pomodoroFocusMin
+              : intent.mode === 'short_break'
+              ? workspace.preferences.pomodoroShortBreakMin
+              : workspace.preferences.pomodoroLongBreakMin;
+          const mins = intent.minutes ?? fallbackMin;
+          setPomMode(intent.mode);
+          setPomSecondsLeft(mins * 60);
+          setPomRunning(true);
           setSection('overview');
-          setVoiceFeedback(
-            `Started ${intent.minutes ? `${intent.minutes}m ` : ''}${intent.mode.replace('_', ' ')} timer`
-          );
-          fireHaptic('pomodoroComplete', 'Focus timer started');
+          const modeLabel =
+            intent.mode === 'focus'
+              ? 'Focus'
+              : intent.mode === 'short_break'
+              ? 'Pausa breve'
+              : 'Pausa lunga';
+          setVoiceFeedback(`Avviato timer ${modeLabel} (${mins} min)`);
+          fireHaptic('pomodoroComplete', 'Timer Focus avviato');
           break;
         }
         case 'note': {
@@ -387,19 +531,19 @@ export default function App() {
             checklist: [],
             pinned: false,
             tint: 'default',
-            tags: ['Voice'],
+            tags: ['Voce'],
             updatedAt: new Date().toISOString(),
           };
           setWorkspace((prev) =>
             prev ? { ...prev, notes: [newNote, ...prev.notes] } : prev
           );
-          setVoiceFeedback(`Saved note: "${intent.title}"`);
-          fireHaptic('taskComplete', 'Note saved');
+          setVoiceFeedback(`Nota salvata: "${intent.title}"`);
+          fireHaptic('taskComplete', 'Nota salvata');
           break;
         }
         default: {
           setVoiceFeedback(
-            `Try starting with "Schedule...", "Remind me...", "Add task...", "Log expense...", or "Log 500ml water".`
+            'Prova con "Segna dentista domani alle 15", "Ricordami...", "Aggiungi task...", "Spesa 18 euro..." o "Bevi 500ml acqua".'
           );
         }
       }
@@ -410,17 +554,28 @@ export default function App() {
   if (!workspace) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#0B0F17] text-slate-600 dark:text-slate-300 text-sm">
-        Loading Cadence Workspace...
+        Caricamento workspace Cadence...
       </div>
     );
   }
 
-  // ---------------- WORKSPACE SYNC HANDLERS (WITH CONFIRMATION DIALOGS) ----------------
+  const currency = workspace.preferences.currency || 'EUR';
+  const voiceLang: VoiceLanguage = workspace.preferences.voiceLang || 'it-IT';
+
+  const pomDefaultSec = getModeDurationSeconds(pomMode);
+  const showHeaderPomPill = pomRunning || pomSecondsLeft !== pomDefaultSec;
+  const headerPomMins = String(Math.floor(pomSecondsLeft / 60)).padStart(2, '0');
+  const headerPomSecs = String(pomSecondsLeft % 60).padStart(2, '0');
+
+  const openTasksCount = workspace.tasks.filter((t) => t.kanbanStatus !== 'done').length;
+  const pendingShopCount = workspace.shoppingList.filter((s) => !s.checked).length;
+
+  // ---------------- SYNC HANDLER GOOGLE WORKSPACE (CON CONFERMA) ----------------
 
   const handlePullGoogleCalendar = async () => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to pull Google Calendar events.');
+      showNotice('err', 'Accedi con Google per importare gli eventi di Google Calendar.');
       return;
     }
     setSyncingCalendar(true);
@@ -431,9 +586,12 @@ export default function App() {
         const localOnly = prev.events.filter((e) => !e.googleEventId);
         return { ...prev, events: [...localOnly, ...gEvents] };
       });
-      showNotice('ok', `Synced ${gEvents.length} events from Google Calendar.`);
+      showNotice('ok', `Sincronizzati ${gEvents.length} eventi da Google Calendar.`);
     } catch (err) {
-      showNotice('err', err instanceof Error ? err.message : 'Calendar sync failed.');
+      showNotice(
+        'err',
+        err instanceof Error ? err.message : 'Sincronizzazione Calendar non riuscita.'
+      );
     } finally {
       setSyncingCalendar(false);
     }
@@ -442,14 +600,14 @@ export default function App() {
   const handlePushEventToGoogle = (ev: CalendarEvent) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google to push events to Google Calendar.');
+      showNotice('err', 'Accedi con Google per inviare eventi su Google Calendar.');
       return;
     }
     setPendingConfirmation({
-      title: 'Add Event to Google Calendar?',
-      description: `This will create "${ev.title}" on ${ev.date} (${ev.startTime}–${ev.endTime}) in your primary Google Calendar.`,
-      affectedItems: [`${ev.title} (${ev.date} ${ev.startTime})`],
-      confirmLabel: 'Create in Google Calendar',
+      title: 'Aggiungere evento su Google Calendar?',
+      description: `Verrà creato "${ev.title}" il ${formatShortDateIT(ev.date)} (${ev.startTime}–${ev.endTime}) sul tuo Google Calendar principale.`,
+      affectedItems: [`${ev.title} (${formatShortDateIT(ev.date)} ${ev.startTime})`],
+      confirmLabel: 'Crea su Google Calendar',
       onConfirm: async () => {
         const googleEventId = await createGoogleCalendarEvent(token, ev);
         setWorkspace((prev) =>
@@ -462,8 +620,8 @@ export default function App() {
               }
             : prev
         );
-        fireHaptic('taskComplete', 'Event pushed to Google Calendar');
-        showNotice('ok', `Created "${ev.title}" in Google Calendar.`);
+        fireHaptic('taskComplete', 'Evento inviato su Google Calendar');
+        showNotice('ok', `"${ev.title}" creato su Google Calendar.`);
       },
     });
   };
@@ -472,21 +630,21 @@ export default function App() {
     if (ev.googleEventId) {
       const token = getWorkspaceAccessToken();
       if (!token) {
-        showNotice('err', 'Reconnect Google to delete a synced Google Calendar event.');
+        showNotice('err', 'Riconnetti Google per eliminare un evento sincronizzato.');
         return;
       }
       setPendingConfirmation({
-        title: 'Delete Event from Google Calendar?',
-        description: `Are you sure you want to permanently delete "${ev.title}" from your Google Calendar and local schedule?`,
-        affectedItems: [`${ev.title} · ${ev.date} ${ev.startTime}`],
-        confirmLabel: 'Delete Event',
+        title: 'Eliminare evento da Google Calendar?',
+        description: `Vuoi eliminare definitivamente "${ev.title}" da Google Calendar e dalla tua agenda locale?`,
+        affectedItems: [`${ev.title} · ${formatShortDateIT(ev.date)} ${ev.startTime}`],
+        confirmLabel: 'Elimina Evento',
         isDestructive: true,
         onConfirm: async () => {
           await deleteGoogleCalendarEvent(token, ev.googleEventId!);
           setWorkspace((prev) =>
             prev ? { ...prev, events: prev.events.filter((e) => e.id !== ev.id) } : prev
           );
-          showNotice('ok', `Deleted "${ev.title}" from Google Calendar.`);
+          showNotice('ok', `"${ev.title}" eliminato da Google Calendar.`);
         },
       });
       return;
@@ -500,7 +658,7 @@ export default function App() {
   const handleSyncGoogleTasks = async (overrideListId?: string) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to sync Google Tasks.');
+      showNotice('err', 'Accedi con Google per sincronizzare Google Tasks.');
       return;
     }
     const listId = overrideListId || selectedTaskListId || '@default';
@@ -534,9 +692,12 @@ export default function App() {
           }));
         return { ...prev, tasks: [...imported, ...prev.tasks] };
       });
-      showNotice('ok', `Synced ${gTasks.length} tasks from Google Tasks.`);
+      showNotice('ok', `Sincronizzati ${gTasks.length} task da Google Tasks.`);
     } catch (err) {
-      showNotice('err', err instanceof Error ? err.message : 'Google Tasks sync failed.');
+      showNotice(
+        'err',
+        err instanceof Error ? err.message : 'Sincronizzazione Google Tasks fallita.'
+      );
     } finally {
       setSyncingTasks(false);
     }
@@ -545,14 +706,14 @@ export default function App() {
   const handlePushTaskToGoogle = (task: TaskItem) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google to push tasks to Google Tasks.');
+      showNotice('err', 'Accedi con Google per inviare task su Google Tasks.');
       return;
     }
     setPendingConfirmation({
-      title: 'Push Task to Google Tasks?',
-      description: `Create "${task.title}" in your Google Tasks list (${selectedTaskListId})?`,
-      affectedItems: [`${task.title} · Due ${task.dueDate}`],
-      confirmLabel: 'Create Google Task',
+      title: 'Inviare task su Google Tasks?',
+      description: `Creare "${task.title}" nella lista Google Tasks (${selectedTaskListId})?`,
+      affectedItems: [`${task.title} · Scad. ${formatShortDateIT(task.dueDate)}`],
+      confirmLabel: 'Crea su Google Tasks',
       onConfirm: async () => {
         const gId = await createGoogleTask(token, task, selectedTaskListId);
         setWorkspace((prev) =>
@@ -567,8 +728,8 @@ export default function App() {
               }
             : prev
         );
-        fireHaptic('taskComplete', 'Synced to Google Tasks');
-        showNotice('ok', `Pushed "${task.title}" to Google Tasks.`);
+        fireHaptic('taskComplete', 'Sincronizzato con Google Tasks');
+        showNotice('ok', `"${task.title}" inviato su Google Tasks.`);
       },
     });
   };
@@ -577,7 +738,6 @@ export default function App() {
     const target = workspace.tasks.find((t) => t.id === taskId);
     if (!target) return;
 
-    // If marking a Google-linked task done/undone, ask confirmation before mutating Google Tasks
     if (
       target.googleTaskId &&
       patch.kanbanStatus &&
@@ -587,9 +747,9 @@ export default function App() {
       if (token) {
         const nextDone = patch.kanbanStatus === 'done';
         setPendingConfirmation({
-          title: nextDone ? 'Complete Task in Google Tasks?' : 'Reopen Google Task?',
-          description: `Update completion status for "${target.title}" in Google Tasks as well?`,
-          confirmLabel: nextDone ? 'Mark Complete' : 'Reopen Task',
+          title: nextDone ? 'Completare task su Google Tasks?' : 'Riaprire Google Task?',
+          description: `Aggiornare lo stato di completamento per "${target.title}" anche su Google Tasks?`,
+          confirmLabel: nextDone ? 'Segna Completato' : 'Riapri Task',
           onConfirm: async () => {
             await updateGoogleTaskStatus(
               token,
@@ -609,7 +769,7 @@ export default function App() {
                   }
                 : prev
             );
-            if (nextDone) fireHaptic('taskComplete', `Completed: ${target.title}`);
+            if (nextDone) fireHaptic('taskComplete', `Completato: ${target.title}`);
           },
         });
         return;
@@ -636,7 +796,7 @@ export default function App() {
     );
 
     if (becameDone) {
-      fireHaptic('taskComplete', `Completed: ${target.title}`);
+      fireHaptic('taskComplete', `Completato: ${target.title}`);
     } else if (movedDrag) {
       fireHaptic('dragDrop');
     }
@@ -655,17 +815,17 @@ export default function App() {
         : [
             {
               id: 'local-1',
-              name: 'Q4_Budget_Forecast_Draft.xlsx',
+              name: 'Previsione_Budget_Trimestrale.xlsx',
               mimeType: 'application/vnd.google-apps.spreadsheet',
             },
             {
               id: 'local-2',
-              name: 'Offline_Sync_Architecture_Spec.gdoc',
+              name: 'Specifiche_Sync_Offline_Drive.gdoc',
               mimeType: 'application/vnd.google-apps.document',
             },
             {
               id: 'local-3',
-              name: 'Weekly_Design_Deck_Gantt.gslides',
+              name: 'Roadmap_Presentazione_Settimanale.gslides',
               mimeType: 'application/vnd.google-apps.presentation',
             },
           ];
@@ -684,26 +844,26 @@ export default function App() {
       });
       return { ...prev, tasks: nextTasks };
     });
-    fireHaptic('taskComplete', `Auto-linked ${attachedCount} Drive files`);
+    fireHaptic('taskComplete', `Collegati ${attachedCount} file Drive`);
     showNotice(
       'ok',
       attachedCount > 0
-        ? `Auto-attached ${attachedCount} relevant document(s) to matching tasks.`
-        : 'All matching documents are already attached to your tasks.'
+        ? `Collegati automaticamente ${attachedCount} file ai task corrispondenti.`
+        : 'Tutti i file pertinenti risultano già collegati ai rispettivi task.'
     );
   };
 
   const handleCreateSpreadsheet = () => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to create a Google Sheet.');
+      showNotice('err', 'Accedi con Google per creare un foglio Google Sheets.');
       return;
     }
     setPendingConfirmation({
-      title: 'Create Google Sheet Ledger?',
+      title: 'Creare Registro Google Sheets?',
       description:
-        'This will create a new "Cadence Finance & Shopping Ledger" spreadsheet in your Google Drive with Expenses, Budget, and Shopping tabs.',
-      confirmLabel: 'Create Spreadsheet',
+        'Verrà creato un nuovo foglio "Cadence Finance & Shopping Ledger" sul tuo Google Drive con le schede Spese, Budget e Lista Spesa.',
+      confirmLabel: 'Crea Foglio Google',
       onConfirm: async () => {
         setSyncingSheets(true);
         try {
@@ -727,8 +887,8 @@ export default function App() {
                 }
               : prev
           );
-          fireHaptic('taskComplete', 'Google Sheet created & synced');
-          showNotice('ok', 'Created and populated "Cadence Finance & Shopping Ledger" in Google Sheets.');
+          fireHaptic('taskComplete', 'Google Sheet creato e sincronizzato');
+          showNotice('ok', 'Creato e popolato il registro finanziario su Google Sheets.');
         } finally {
           setSyncingSheets(false);
         }
@@ -742,14 +902,14 @@ export default function App() {
     if (!token || !sheetId) return;
 
     setPendingConfirmation({
-      title: 'Update Google Sheets Ledger?',
-      description: `Overwrite cells in "${workspace.preferences.linkedSpreadsheetName || 'Cadence Finance & Shopping Ledger'}" with your latest local expenses (${workspace.expenses.length} rows), monthly budget, and shopping list (${workspace.shoppingList.length} items)?`,
+      title: 'Aggiornare il registro su Google Sheets?',
+      description: `Sovrascrivere le celle in "${workspace.preferences.linkedSpreadsheetName || 'Cadence Ledger'}" con le tue spese (${workspace.expenses.length} righe), limiti budget e lista spesa (${workspace.shoppingList.length} articoli)?`,
       affectedItems: [
-        `${workspace.expenses.length} Expense rows`,
-        `Monthly budget limits (${workspace.budget.month})`,
-        `${workspace.shoppingList.length} Shopping list items`,
+        `${workspace.expenses.length} righe spese`,
+        `Limiti budget mensile (${workspace.budget.month})`,
+        `${workspace.shoppingList.length} articoli lista spesa`,
       ],
-      confirmLabel: 'Sync to Google Sheets',
+      confirmLabel: 'Sincronizza su Google Sheets',
       onConfirm: async () => {
         setSyncingSheets(true);
         try {
@@ -760,8 +920,8 @@ export default function App() {
             workspace.budget,
             workspace.shoppingList
           );
-          fireHaptic('taskComplete', 'Synced to Google Sheets');
-          showNotice('ok', 'Updated Google Sheets ledger successfully.');
+          fireHaptic('taskComplete', 'Sincronizzato con Google Sheets');
+          showNotice('ok', 'Foglio Google Sheets aggiornato correttamente.');
         } finally {
           setSyncingSheets(false);
         }
@@ -772,16 +932,19 @@ export default function App() {
   const handleRefreshDriveFiles = async (query?: string) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to browse Google Drive files.');
+      showNotice('err', 'Accedi con Google per sfogliare i file di Google Drive.');
       return;
     }
     setLoadingDrive(true);
     try {
       const files = await listDriveFiles(token, query);
       setDriveFiles(files);
-      showNotice('ok', `Loaded ${files.length} files from Google Drive.`);
+      showNotice('ok', `Caricati ${files.length} file da Google Drive.`);
     } catch (err) {
-      showNotice('err', err instanceof Error ? err.message : 'Failed to list Drive files.');
+      showNotice(
+        'err',
+        err instanceof Error ? err.message : 'Errore nel caricamento dei file Drive.'
+      );
     } finally {
       setLoadingDrive(false);
     }
@@ -790,18 +953,18 @@ export default function App() {
   const handleCreateDriveDoc = (title: string, content: string) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to create Drive documents.');
+      showNotice('err', 'Accedi con Google per creare documenti su Google Drive.');
       return;
     }
     setPendingConfirmation({
-      title: 'Create Collaborative Document in Google Drive?',
-      description: `This will create "${title}" as a Google Doc in your Google Drive.`,
-      confirmLabel: 'Create Google Doc',
+      title: 'Creare documento collaborativo su Google Drive?',
+      description: `Verrà creato "${title}" come Google Doc nel tuo Google Drive.`,
+      confirmLabel: 'Crea Google Doc',
       onConfirm: async () => {
         const created = await createCollaborativeDriveDoc(token, title, content);
         setDriveFiles((prev) => [created, ...prev]);
-        fireHaptic('taskComplete', 'Google Doc created');
-        showNotice('ok', `Created "${created.name}" in Google Drive.`);
+        fireHaptic('taskComplete', 'Google Doc creato');
+        showNotice('ok', `"${created.name}" creato su Google Drive.`);
       },
     });
   };
@@ -809,7 +972,7 @@ export default function App() {
   const handleReadDriveDoc = async (file: DriveFileRecord) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to read Drive documents.');
+      showNotice('err', 'Accedi con Google per leggere i documenti Drive.');
       return;
     }
     setActiveDriveDoc(file);
@@ -820,7 +983,7 @@ export default function App() {
     } catch (err) {
       showNotice(
         'err',
-        err instanceof Error ? err.message : 'Unable to read this file as text.'
+        err instanceof Error ? err.message : 'Impossibile leggere questo file come testo.'
       );
       setActiveDriveDocContent('');
     } finally {
@@ -831,20 +994,20 @@ export default function App() {
   const handleSaveDriveDocContent = (file: DriveFileRecord, content: string) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to save changes to Drive.');
+      showNotice('err', 'Accedi con Google per salvare le modifiche su Drive.');
       return;
     }
     setPendingConfirmation({
-      title: 'Save Changes to Google Drive Document?',
-      description: `Update the contents of "${file.name}" in Google Drive with your edited text?`,
-      confirmLabel: 'Save Document',
+      title: 'Salvare le modifiche su Google Drive?',
+      description: `Aggiornare il contenuto di "${file.name}" su Google Drive con il testo modificato?`,
+      confirmLabel: 'Salva Documento',
       onConfirm: async () => {
         const updated = await updateDriveDocumentContent(token, file.id, content);
         setActiveDriveDoc(updated);
         setActiveDriveDocContent(content);
         setDriveFiles((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
-        fireHaptic('taskComplete', `Saved ${file.name}`);
-        showNotice('ok', `Updated "${file.name}" in Google Drive.`);
+        fireHaptic('taskComplete', `Salvato ${file.name}`);
+        showNotice('ok', `"${file.name}" aggiornato su Google Drive.`);
       },
     });
   };
@@ -852,16 +1015,19 @@ export default function App() {
   const handleRefreshSpreadsheets = async () => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to list your Google Sheets.');
+      showNotice('err', 'Accedi con Google per elencare i tuoi Google Sheets.');
       return;
     }
     setLoadingSheetGrid(true);
     try {
       const sheets = await listGoogleSpreadsheets(token);
       setSpreadsheets(sheets);
-      showNotice('ok', `Found ${sheets.length} Google Spreadsheets.`);
+      showNotice('ok', `Trovati ${sheets.length} fogli Google Sheets.`);
     } catch (err) {
-      showNotice('err', err instanceof Error ? err.message : 'Failed to list spreadsheets.');
+      showNotice(
+        'err',
+        err instanceof Error ? err.message : 'Impossibile elencare i fogli Google.'
+      );
     } finally {
       setLoadingSheetGrid(false);
     }
@@ -876,7 +1042,10 @@ export default function App() {
       const rows = await readSheetRange(token, spreadsheetId, `${tabName}!A1:H40`);
       setSheetGrid(rows);
     } catch (err) {
-      showNotice('err', err instanceof Error ? err.message : 'Failed to read sheet range.');
+      showNotice(
+        'err',
+        err instanceof Error ? err.message : 'Errore durante la lettura della scheda.'
+      );
     } finally {
       setLoadingSheetGrid(false);
     }
@@ -885,7 +1054,7 @@ export default function App() {
   const handleSelectSpreadsheet = async (spreadsheetId: string, title?: string) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      showNotice('err', 'Sign in with Google first to read spreadsheets.');
+      showNotice('err', 'Accedi con Google per leggere i fogli di calcolo.');
       return;
     }
     setLoadingSheetGrid(true);
@@ -908,7 +1077,10 @@ export default function App() {
         await handleReadSheetTab(meta.spreadsheetId, meta.sheets[0]);
       }
     } catch (err) {
-      showNotice('err', err instanceof Error ? err.message : 'Failed to open spreadsheet.');
+      showNotice(
+        'err',
+        err instanceof Error ? err.message : 'Impossibile aprire il foglio selezionato.'
+      );
       setLoadingSheetGrid(false);
     }
   };
@@ -921,17 +1093,17 @@ export default function App() {
     const token = getWorkspaceAccessToken();
     if (!token) return;
     setPendingConfirmation({
-      title: 'Write Changes to Google Sheet?',
-      description: `Update ${values.length} row(s) in tab "${tabName}" of your Google Spreadsheet?`,
-      affectedItems: [`Tab: ${tabName}`, `${values.length} rows`],
-      confirmLabel: 'Write to Sheet',
+      title: 'Scrivere le modifiche su Google Sheets?',
+      description: `Aggiornare ${values.length} righe nella scheda "${tabName}" del foglio Google collegato?`,
+      affectedItems: [`Scheda: ${tabName}`, `${values.length} righe`],
+      confirmLabel: 'Scrivi su Foglio',
       onConfirm: async () => {
         setSyncingSheets(true);
         try {
           await writeSheetRange(token, spreadsheetId, `${tabName}!A1`, values);
           setSheetGrid(values);
-          fireHaptic('taskComplete', 'Google Sheet updated');
-          showNotice('ok', `Updated "${tabName}" in Google Sheets.`);
+          fireHaptic('taskComplete', 'Foglio Google aggiornato');
+          showNotice('ok', `Scheda "${tabName}" aggiornata su Google Sheets.`);
         } finally {
           setSyncingSheets(false);
         }
@@ -942,18 +1114,18 @@ export default function App() {
   const handleUploadEncryptedDrive = async (passphrase: string) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      throw new Error('Sign in with Google first to sync encrypted backups to Drive.');
+      throw new Error('Accedi prima con Google per sincronizzare i backup cifrati su Drive.');
     }
     return new Promise<void>((resolve, reject) => {
       setPendingConfirmation({
-        title: 'Sync Encrypted Vault to Google Drive?',
+        title: 'Sincronizzare Archivio Cifrato su Drive?',
         description:
-          'This will encrypt your workspace with AES-256-GCM and update your private vault file in Google Drive AppData.',
-        confirmLabel: 'Encrypt & Upload',
+          'Tutti i dati verranno cifrati con AES-256-GCM nel tuo browser e caricati nella cartella privata AppData di Google Drive.',
+        confirmLabel: 'Cifra & Carica',
         onConfirm: async () => {
           try {
             await uploadEncryptedVaultToDrive(token, workspace, passphrase);
-            fireHaptic('taskComplete', 'Encrypted Drive sync complete');
+            fireHaptic('taskComplete', 'Sync cifrato su Drive completato');
             resolve();
           } catch (err) {
             reject(err);
@@ -966,40 +1138,62 @@ export default function App() {
   const handleRestoreEncryptedDrive = async (passphrase: string) => {
     const token = getWorkspaceAccessToken();
     if (!token) {
-      throw new Error('Sign in with Google first to restore from Drive.');
+      throw new Error('Accedi con Google per ripristinare il backup da Drive.');
     }
     const restored = await downloadEncryptedVaultFromDrive(token, passphrase);
     setWorkspace(restored);
-    fireHaptic('taskComplete', 'Encrypted vault restored');
+    fireHaptic('taskComplete', 'Archivio cifrato ripristinato');
   };
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-[#0B0F17] text-slate-900 dark:text-slate-100">
-      {/* Desktop Sidebar */}
+      {/* Sidebar Desktop */}
       <aside className="hidden lg:flex w-64 shrink-0 flex-col justify-between border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <span className="font-display text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
               Cadence
             </span>
+            <span className="text-[11px] font-medium text-slate-400">
+              {currency === 'USD' ? '$ USD' : '€ EUR'}
+            </span>
           </div>
 
-          <nav className="space-y-1" aria-label="Primary Workspace Navigation">
+          <nav className="space-y-1" aria-label="Navigazione Workspace">
             {NAV_ITEMS.map((item) => {
               const active = section === item.id;
+              const badgeCount =
+                item.id === 'projects'
+                  ? openTasksCount
+                  : item.id === 'finance'
+                  ? pendingShopCount
+                  : 0;
               return (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => setSection(item.id)}
-                  className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
+                  className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
                     active
                       ? 'bg-blue-600 text-white'
                       : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
                   }`}
                 >
-                  {item.icon}
-                  <span>{item.label}</span>
+                  <span className="inline-flex items-center gap-3">
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </span>
+                  {badgeCount > 0 && (
+                    <span
+                      className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-md tabular-nums ${
+                        active
+                          ? 'bg-white/20 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
+                      {badgeCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -1014,14 +1208,14 @@ export default function App() {
           >
             <span className="inline-flex items-center gap-2">
               <Lock className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-              {user && hasGoogleToken ? 'Drive Encrypted Sync' : 'Local-First Vault'}
+              {user && hasGoogleToken ? 'Sync Cifrato Drive' : 'Archivio Locale'}
             </span>
-            <span className="text-[11px] text-slate-400">Settings</span>
+            <span className="text-[11px] text-slate-400">Opzioni</span>
           </button>
         </div>
       </aside>
 
-      {/* Mobile Sidebar Drawer */}
+      {/* Drawer Menu Mobile (Opzioni Secondarie su Pixel Pro) */}
       {mobileNavOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div
@@ -1037,7 +1231,8 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  aria-label="Chiudi menu"
+                  className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -1072,7 +1267,7 @@ export default function App() {
               className="w-full flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-2.5 text-xs font-medium"
             >
               <Lock className="h-3.5 w-3.5 text-blue-500" />
-              Sync &amp; Encryption
+              Sync, Valuta &amp; Cifratura
             </button>
           </aside>
         </div>
@@ -1080,23 +1275,56 @@ export default function App() {
 
       {/* Main Content Shell */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Bar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#0B0F17]/95 backdrop-blur-sm px-4 sm:px-6 py-3">
-          <div className="flex items-center gap-3 min-w-0">
+        {/* Top Bar compatta per Mobile & Desktop */}
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-4 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#0B0F17]/95 backdrop-blur-sm px-3.5 sm:px-6 py-2.5 sm:py-3">
+          <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
-              aria-label="Open navigation menu"
+              aria-label="Apri menu navigazione"
               className="lg:hidden rounded-lg border border-slate-200 dark:border-slate-800 p-2 text-slate-600 dark:text-slate-300 cursor-pointer"
             >
               <Menu className="h-4 w-4" />
             </button>
-            <h1 className="text-base font-semibold text-slate-900 dark:text-slate-100 truncate">
+            <h1 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 truncate">
               {NAV_ITEMS.find((n) => n.id === section)?.label}
             </h1>
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* Pill Pomodoro persistente quando attivo o in pausa */}
+            {showHeaderPomPill && (
+              <button
+                type="button"
+                onClick={() => setSection('overview')}
+                title="Vai al Timer Pomodoro"
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-2 sm:px-2.5 py-1.5 text-xs font-semibold tabular-nums cursor-pointer ${
+                  pomRunning
+                    ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                    : 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                }`}
+              >
+                <Timer className={`h-3.5 w-3.5 ${pomRunning ? 'animate-pulse' : ''}`} />
+                <span>
+                  {headerPomMins}:{headerPomSecs}
+                </span>
+              </button>
+            )}
+
+            {/* Ricerca Globale */}
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              aria-label="Ricerca globale"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 sm:py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <Search className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+              <span className="hidden sm:inline">Cerca</span>
+              <kbd className="hidden md:inline rounded bg-slate-100 dark:bg-slate-800 px-1 py-0.5 text-[10px] text-slate-400">
+                ⌘K
+              </kbd>
+            </button>
+
             <PWAInstallButton />
 
             <button
@@ -1114,7 +1342,7 @@ export default function App() {
                     : prev
                 )
               }
-              aria-label="Toggle dark mode"
+              aria-label="Cambia tema chiaro/scuro"
               className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
               {workspace.preferences.theme === 'dark' ? (
@@ -1127,19 +1355,20 @@ export default function App() {
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
+              aria-label="Impostazioni e Sync Cifrato"
               className="hidden sm:inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap cursor-pointer"
             >
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-              Encrypted Sync
+              Vault &amp; Opzioni
             </button>
 
             {user && hasGoogleToken ? (
               <button
                 type="button"
                 onClick={() => setSettingsOpen(true)}
-                className="rounded-lg bg-emerald-600/15 border border-emerald-600/30 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 whitespace-nowrap cursor-pointer"
+                className="rounded-lg bg-emerald-600/15 border border-emerald-600/30 px-2.5 sm:px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 whitespace-nowrap cursor-pointer"
               >
-                {user.displayName?.split(' ')[0] || 'Google Connected'}
+                {user.displayName?.split(' ')[0] || 'Google OK'}
               </button>
             ) : (
               <GoogleSignInButton
@@ -1151,9 +1380,17 @@ export default function App() {
           </div>
         </header>
 
-        {/* Main Workspace Container */}
-        <main className="flex-1 max-w-[1280px] w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* Contenitore Principale con padding inferiore extra per Bottom Nav su Pixel Pro */}
+        <main className="flex-1 max-w-[1280px] w-full mx-auto px-3.5 sm:px-6 py-4 sm:py-6 pb-24 lg:pb-8 space-y-5 sm:space-y-6">
           <VoiceAssistantBar
+            voiceLang={voiceLang}
+            onChangeVoiceLang={(lang) =>
+              setWorkspace((prev) =>
+                prev
+                  ? { ...prev, preferences: { ...prev.preferences, voiceLang: lang } }
+                  : prev
+              )
+            }
             onCommand={handleVoiceCommand}
             lastFeedback={voiceFeedback}
           />
@@ -1173,7 +1410,13 @@ export default function App() {
           {section === 'overview' && (
             <OverviewDashboard
               data={workspace}
-              pomodoroTrigger={pomodoroTrigger}
+              pomodoroState={{
+                mode: pomMode,
+                secondsLeft: pomSecondsLeft,
+                running: pomRunning,
+                selectedTaskId: pomTaskId,
+                completedCount: pomCompletedCount,
+              }}
               onNavigate={setSection}
               onToggleReminder={(id) => {
                 const target = workspace.reminders.find((r) => r.id === id);
@@ -1188,7 +1431,7 @@ export default function App() {
                     : prev
                 );
                 if (target && !target.completed) {
-                  fireHaptic('taskComplete', `Reminder completed: ${target.title}`);
+                  fireHaptic('taskComplete', `Completato: ${target.title}`);
                 }
               }}
               onToggleTaskDone={(id) => {
@@ -1212,7 +1455,7 @@ export default function App() {
                     : prev
                 );
                 if (target && !target.checked) {
-                  fireHaptic('taskComplete', `Checked off ${target.name}`);
+                  fireHaptic('taskComplete', `Preso: ${target.name}`);
                 }
               }}
               onAddShoppingItem={(name) => {
@@ -1238,7 +1481,7 @@ export default function App() {
               }}
               onLogWater={(ml) => {
                 mutateTodayHealth((h) => ({ ...h, waterMl: h.waterMl + ml }));
-                fireHaptic('waterLog', `Logged +${ml}ml water`);
+                fireHaptic('waterLog', `Idratazione +${ml}ml`);
               }}
               onLogSteps={(steps) => {
                 mutateTodayHealth((h) => ({
@@ -1246,56 +1489,33 @@ export default function App() {
                   steps: h.steps + steps,
                   kcalBurned: h.kcalBurned + Math.round(steps * 0.04),
                 }));
-                fireHaptic('waterLog', `Logged +${steps.toLocaleString()} steps`);
+                fireHaptic('waterLog', `+${steps.toLocaleString('it-IT')} passi`);
               }}
-              onPomodoroComplete={(mode, minutes, taskId) => {
-                const linkedTask = workspace.tasks.find((t) => t.id === taskId);
-                setWorkspace((prev) => {
-                  if (!prev) return prev;
-                  return {
-                    ...prev,
-                    pomodoroLogs: [
-                      {
-                        id: `pom-${Date.now()}`,
-                        taskId,
-                        taskTitle: linkedTask?.title,
-                        minutes,
-                        mode,
-                        completedAt: new Date().toISOString(),
-                      },
-                      ...prev.pomodoroLogs,
-                    ],
-                    tasks:
-                      mode === 'focus' && taskId
-                        ? prev.tasks.map((t) =>
-                            t.id === taskId
-                              ? { ...t, pomodoroSessions: t.pomodoroSessions + 1 }
-                              : t
-                          )
-                        : prev.tasks,
-                  };
-                });
-                fireHaptic(
-                  'pomodoroComplete',
-                  mode === 'focus'
-                    ? `Deep work complete (${minutes}m)`
-                    : 'Break complete — ready for focus'
-                );
+              onTogglePomodoroRun={() => setPomRunning((prev) => !prev)}
+              onResetPomodoro={() => {
+                setPomRunning(false);
+                setPomSecondsLeft(getModeDurationSeconds(pomMode));
               }}
+              onSwitchPomodoroMode={(nextMode) => {
+                setPomRunning(false);
+                setPomMode(nextMode);
+                setPomSecondsLeft(getModeDurationSeconds(nextMode));
+              }}
+              onSkipPomodoroPhase={completePomodoroPhase}
+              onSelectPomodoroTask={setPomTaskId}
               onUpdatePomodoroDurations={(focusMin, shortMin, longMin) => {
+                const nextPrefs = {
+                  ...workspace.preferences,
+                  pomodoroFocusMin: focusMin,
+                  pomodoroShortBreakMin: shortMin,
+                  pomodoroLongBreakMin: longMin,
+                };
                 setWorkspace((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        preferences: {
-                          ...prev.preferences,
-                          pomodoroFocusMin: focusMin,
-                          pomodoroShortBreakMin: shortMin,
-                          pomodoroLongBreakMin: longMin,
-                        },
-                      }
-                    : prev
+                  prev ? { ...prev, preferences: nextPrefs } : prev
                 );
+                if (!pomRunning) {
+                  setPomSecondsLeft(getModeDurationSeconds(pomMode, nextPrefs));
+                }
               }}
             />
           )}
@@ -1315,7 +1535,7 @@ export default function App() {
                       }
                     : prev
                 );
-                fireHaptic('taskComplete', `Event scheduled: ${ev.title}`);
+                fireHaptic('taskComplete', `Evento segnato: ${ev.title}`);
               }}
               onDeleteEvent={handleDeleteEvent}
               onPushEventToGoogle={handlePushEventToGoogle}
@@ -1332,7 +1552,7 @@ export default function App() {
                       }
                     : prev
                 );
-                fireHaptic('tap', 'Reminder saved');
+                fireHaptic('tap', 'Promemoria salvato');
               }}
               onToggleReminder={(id) => {
                 const target = workspace.reminders.find((r) => r.id === id);
@@ -1347,7 +1567,7 @@ export default function App() {
                     : prev
                 );
                 if (target && !target.completed) {
-                  fireHaptic('taskComplete', `Reminder done: ${target.title}`);
+                  fireHaptic('taskComplete', `Promemoria completato: ${target.title}`);
                 }
               }}
               onDeleteReminder={(id) =>
@@ -1384,7 +1604,7 @@ export default function App() {
                       }
                     : prev
                 );
-                fireHaptic('taskComplete', `Created project: ${proj.name}`);
+                fireHaptic('taskComplete', `Progetto creato: ${proj.name}`);
               }}
               onDeleteProject={(projectId) => {
                 setWorkspace((prev) =>
@@ -1415,7 +1635,7 @@ export default function App() {
                       }
                     : prev
                 );
-                fireHaptic('taskComplete', `Created task: ${t.title}`);
+                fireHaptic('taskComplete', `Task creato: ${t.title}`);
               }}
               onUpdateTask={handleUpdateTask}
               onDeleteTask={handleDeleteTask}
@@ -1431,6 +1651,7 @@ export default function App() {
               expenses={workspace.expenses}
               budget={workspace.budget}
               shoppingList={workspace.shoppingList}
+              currency={currency}
               isGoogleConnected={Boolean(user && hasGoogleToken)}
               linkedSpreadsheetId={workspace.preferences.linkedSpreadsheetId}
               linkedSpreadsheetName={workspace.preferences.linkedSpreadsheetName}
@@ -1452,7 +1673,7 @@ export default function App() {
                       }
                     : prev
                 );
-                fireHaptic('taskComplete', `Expense logged: $${exp.amount.toFixed(2)}`);
+                fireHaptic('taskComplete', `Spesa registrata: ${formatMoney(exp.amount, currency)}`);
               }}
               onDeleteExpense={(id) =>
                 setWorkspace((prev) =>
@@ -1494,7 +1715,7 @@ export default function App() {
                     : prev
                 );
                 if (target && !target.checked) {
-                  fireHaptic('taskComplete', `Checked ${target.name}`);
+                  fireHaptic('taskComplete', `Preso: ${target.name}`);
                 }
               }}
               onDeleteShoppingItem={(id) =>
@@ -1518,7 +1739,7 @@ export default function App() {
                         expenses: [
                           {
                             id: `exp-${Date.now()}`,
-                            description: `Shopping Run (${checked.length} items)`,
+                            description: `Spesa Supermercato (${checked.length} articoli)`,
                             amount: Math.max(0.01, Number(total.toFixed(2))),
                             category: 'Groceries',
                             date: getTodayISO(),
@@ -1529,7 +1750,7 @@ export default function App() {
                       }
                     : prev
                 );
-                fireHaptic('taskComplete', `Logged $${total.toFixed(2)} shopping run`);
+                fireHaptic('taskComplete', `Registrata spesa ${formatMoney(total, currency)}`);
               }}
               onCreateSpreadsheet={handleCreateSpreadsheet}
               onSyncToGoogleSheets={handleSyncToGoogleSheets}
@@ -1566,7 +1787,7 @@ export default function App() {
                       }
                     : prev
                 );
-                fireHaptic('taskComplete', 'Note saved');
+                fireHaptic('taskComplete', 'Nota salvata');
               }}
               onUpdateNote={(id, patch) => {
                 setWorkspace((prev) =>
@@ -1581,7 +1802,7 @@ export default function App() {
                       }
                     : prev
                 );
-                fireHaptic('tap', 'Note updated');
+                fireHaptic('tap', 'Nota aggiornata');
               }}
               onTogglePinNote={(id) =>
                 setWorkspace((prev) =>
@@ -1626,7 +1847,7 @@ export default function App() {
                 setWorkspace((prev) =>
                   prev ? { ...prev, notes: [...imported, ...prev.notes] } : prev
                 );
-                fireHaptic('taskComplete', `Imported ${imported.length} Keep notes`);
+                fireHaptic('taskComplete', `Importate ${imported.length} note Keep`);
               }}
               onExportNoteToDrive={(note) => {
                 const body = [
@@ -1641,6 +1862,10 @@ export default function App() {
               onCreateDriveDoc={handleCreateDriveDoc}
               onReadDriveDoc={handleReadDriveDoc}
               onSaveDriveDocContent={handleSaveDriveDocContent}
+              onCloseDriveDoc={() => {
+                setActiveDriveDoc(null);
+                setActiveDriveDocContent('');
+              }}
               onAttachDriveFileToTask={(taskId, file) => {
                 const task = workspace.tasks.find((t) => t.id === taskId);
                 if (!task) return;
@@ -1658,8 +1883,8 @@ export default function App() {
                     },
                   ],
                 });
-                fireHaptic('taskComplete', `Attached ${file.name}`);
-                showNotice('ok', `Attached "${file.name}" to "${task.title}".`);
+                fireHaptic('taskComplete', `Allegato ${file.name}`);
+                showNotice('ok', `"${file.name}" allegato a "${task.title}".`);
               }}
             />
           )}
@@ -1670,7 +1895,7 @@ export default function App() {
               autoCalendarWorkoutSync={workspace.preferences.autoCalendarWorkoutSync}
               onLogWater={(ml) => {
                 mutateTodayHealth((h) => ({ ...h, waterMl: h.waterMl + ml }));
-                fireHaptic('waterLog', `Hydrated +${ml}ml`);
+                fireHaptic('waterLog', `Idratazione +${ml}ml`);
               }}
               onLogSteps={(steps) => {
                 mutateTodayHealth((h) => ({
@@ -1678,7 +1903,7 @@ export default function App() {
                   steps: h.steps + steps,
                   kcalBurned: h.kcalBurned + Math.round(steps * 0.04),
                 }));
-                fireHaptic('waterLog', `+${steps.toLocaleString()} steps`);
+                fireHaptic('waterLog', `+${steps.toLocaleString('it-IT')} passi`);
               }}
               onUpdateGoals={(stepGoal, kcalGoal, waterGoalMl) => {
                 mutateTodayHealth((h) => ({ ...h, stepGoal, kcalGoal, waterGoalMl }));
@@ -1690,6 +1915,7 @@ export default function App() {
                   kcalBurned: h.kcalBurned + w.kcal,
                   workouts: [newWk, ...h.workouts],
                 }));
+                const workoutIt = WORKOUT_LABELS[w.type] || w.type;
                 if (workspace.preferences.autoCalendarWorkoutSync) {
                   const [hh, mm] = w.time.split(':').map(Number);
                   const totalMins = hh * 60 + mm + w.durationMin;
@@ -1703,7 +1929,7 @@ export default function App() {
                             ...prev.events,
                             {
                               id: `ev-wk-${Date.now()}`,
-                              title: `Workout: ${w.type} (${w.kcal} kcal)`,
+                              title: `Allenamento: ${workoutIt} (${w.kcal} kcal)`,
                               date: getTodayISO(),
                               startTime: w.time,
                               endTime: `${endH}:${endM}`,
@@ -1715,7 +1941,7 @@ export default function App() {
                       : prev
                   );
                 }
-                fireHaptic('taskComplete', `Logged ${w.type} workout`);
+                fireHaptic('taskComplete', `Allenamento ${workoutIt} salvato`);
               }}
               onToggleCalendarWorkoutSync={(enabled) =>
                 setWorkspace((prev) =>
@@ -1736,19 +1962,62 @@ export default function App() {
                   steps: h.steps + steps,
                   kcalBurned: h.kcalBurned + kcal,
                 }));
-                fireHaptic('taskComplete', 'Imported Health metrics');
+                fireHaptic('taskComplete', 'Metriche salute importate');
               }}
             />
           )}
         </main>
       </div>
 
-      {/* Tactile Haptic Visual Feedback Toast */}
+      {/* Bottom Navigation Bar fissa su Pixel Pro / Mobile */}
+      <nav
+        aria-label="Navigazione rapida mobile"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#111827]/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]"
+      >
+        <div className="grid grid-cols-6 max-w-md mx-auto">
+          {NAV_ITEMS.map((item) => {
+            const active = section === item.id;
+            const dotCount =
+              item.id === 'projects'
+                ? openTasksCount
+                : item.id === 'finance'
+                ? pendingShopCount
+                : 0;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  setSection(item.id);
+                  fireHaptic('tap');
+                }}
+                className={`relative flex flex-col items-center justify-center gap-0.5 py-2 px-1 text-[10px] font-medium transition-colors cursor-pointer ${
+                  active
+                    ? 'text-blue-600 dark:text-blue-400'
+                    : 'text-slate-500 dark:text-slate-400'
+                }`}
+              >
+                <span className="relative">
+                  {item.icon}
+                  {dotCount > 0 && (
+                    <span className="absolute -top-1 -right-2 min-w-[14px] h-[14px] px-0.5 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center tabular-nums">
+                      {dotCount > 9 ? '9+' : dotCount}
+                    </span>
+                  )}
+                </span>
+                <span className="truncate max-w-full">{item.shortLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* Toast Feedback Aptico (sopra la Bottom Nav su mobile) */}
       {hapticBanner && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-slate-900 dark:bg-slate-800 px-3.5 py-2 text-xs font-medium text-white shadow-xl"
+          className="fixed bottom-20 lg:bottom-4 right-4 z-40 flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-slate-900 dark:bg-slate-800 px-3.5 py-2 text-xs font-medium text-white shadow-xl"
         >
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-haptic-ripple" />
           <span>{hapticBanner}</span>
@@ -1756,6 +2025,14 @@ export default function App() {
       )}
 
       <OfflineIndicator />
+
+      <GlobalSearchModal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        workspace={workspace}
+        driveFiles={driveFiles}
+        onNavigate={setSection}
+      />
 
       <SyncSettingsModal
         open={settingsOpen}
@@ -1770,7 +2047,7 @@ export default function App() {
         onRestoreEncryptedDrive={handleRestoreEncryptedDrive}
         onImportDecryptedWorkspace={(restored) => {
           setWorkspace(restored);
-          fireHaptic('taskComplete', 'Restored encrypted workspace');
+          fireHaptic('taskComplete', 'Workspace cifrato ripristinato');
         }}
         onUpdatePreferences={(patch) =>
           setWorkspace((prev) =>
@@ -1779,19 +2056,19 @@ export default function App() {
               : prev
           )
         }
-        onTestHaptic={() => fireHaptic('taskComplete', 'Tactile haptic pulse triggered')}
+        onTestHaptic={() => fireHaptic('taskComplete', 'Impulso aptico di test attivato')}
         onResetWorkspace={() => {
           setPendingConfirmation({
-            title: 'Reset Local Workspace?',
+            title: 'Ripristinare il Workspace Locale?',
             description:
-              'This will restore all local tasks, events, notes, finances, and health logs back to initial defaults. Export a .cadence backup first if you want to keep your changes.',
-            confirmLabel: 'Reset Local Data',
+              'Questa operazione riporterà tutti i task, eventi, note, finanze e dati salute ai valori iniziali. Esporta prima un backup .cadence se vuoi conservare le modifiche.',
+            confirmLabel: 'Ripristina Dati Locali',
             isDestructive: true,
             onConfirm: async () => {
               const fresh = createSeedWorkspaceData();
               setWorkspace(fresh);
               setSettingsOpen(false);
-              showNotice('ok', 'Local workspace reset to clean defaults.');
+              showNotice('ok', 'Workspace locale ripristinato ai valori iniziali.');
             },
           });
         }}

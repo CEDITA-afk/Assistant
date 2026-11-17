@@ -11,12 +11,25 @@ import {
   Wallet,
 } from 'lucide-react';
 import type { NavSection, WorkspaceData } from '../types/workspace';
+import {
+  EVENT_CATEGORY_LABELS,
+  formatMoney,
+  formatShortDateIT,
+  PRIORITY_LABELS,
+  REPEAT_LABELS,
+} from '../utils/formatters';
 import { getTodayISO } from '../utils/storage';
 import { PomodoroTimer, type PomodoroMode } from './PomodoroTimer';
 
 interface OverviewDashboardProps {
   data: WorkspaceData;
-  pomodoroTrigger: { mode: PomodoroMode; minutes?: number; nonce: number } | null;
+  pomodoroState: {
+    mode: PomodoroMode;
+    secondsLeft: number;
+    running: boolean;
+    selectedTaskId: string;
+    completedCount: number;
+  };
   onNavigate: (section: NavSection) => void;
   onToggleReminder: (id: string) => void;
   onToggleTaskDone: (id: string) => void;
@@ -24,13 +37,17 @@ interface OverviewDashboardProps {
   onAddShoppingItem: (name: string) => void;
   onLogWater: (ml: number) => void;
   onLogSteps: (steps: number) => void;
-  onPomodoroComplete: (mode: PomodoroMode, minutes: number, taskId?: string) => void;
+  onTogglePomodoroRun: () => void;
+  onResetPomodoro: () => void;
+  onSwitchPomodoroMode: (mode: PomodoroMode) => void;
+  onSkipPomodoroPhase: () => void;
+  onSelectPomodoroTask: (taskId: string) => void;
   onUpdatePomodoroDurations: (focusMin: number, shortMin: number, longMin: number) => void;
 }
 
 export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   data,
-  pomodoroTrigger,
+  pomodoroState,
   onNavigate,
   onToggleReminder,
   onToggleTaskDone,
@@ -38,11 +55,16 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   onAddShoppingItem,
   onLogWater,
   onLogSteps,
-  onPomodoroComplete,
+  onTogglePomodoroRun,
+  onResetPomodoro,
+  onSwitchPomodoroMode,
+  onSkipPomodoroPhase,
+  onSelectPomodoroTask,
   onUpdatePomodoroDurations,
 }) => {
   const [quickShop, setQuickShop] = useState('');
   const today = getTodayISO();
+  const currency = data.preferences.currency || 'EUR';
 
   const todayEvents = data.events
     .filter((e) => e.date === today)
@@ -86,24 +108,24 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* 4-Column KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div className="space-y-5 sm:space-y-6">
+      {/* 4-Column KPI Strip (2x2 compact grid on mobile Pixel Pro) */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
         <button
           type="button"
           onClick={() => onNavigate('schedule')}
-          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 hover:border-blue-500/50 transition-colors cursor-pointer"
+          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-3.5 sm:p-4 hover:border-blue-500/50 transition-colors cursor-pointer"
         >
           <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>Today&apos;s Agenda</span>
-            <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <span className="truncate">Agenda Oggi</span>
+            <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-mono text-xl sm:text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
               {todayEvents.length}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              events · {data.reminders.filter((r) => !r.completed).length} reminders
+            <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+              eventi · {data.reminders.filter((r) => !r.completed).length} promemoria
             </span>
           </div>
         </button>
@@ -111,18 +133,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <button
           type="button"
           onClick={() => onNavigate('projects')}
-          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 hover:border-blue-500/50 transition-colors cursor-pointer"
+          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-3.5 sm:p-4 hover:border-blue-500/50 transition-colors cursor-pointer"
         >
           <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>Priority Tasks</span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="truncate">Task Prioritari</span>
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-mono text-xl sm:text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
               {openTasks.length}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              open · {q1Count} urgent Q1
+            <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+              aperti · {q1Count} urgenti Q1
             </span>
           </div>
         </button>
@@ -130,18 +152,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <button
           type="button"
           onClick={() => onNavigate('finance')}
-          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 hover:border-blue-500/50 transition-colors cursor-pointer"
+          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-3.5 sm:p-4 hover:border-blue-500/50 transition-colors cursor-pointer"
         >
           <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>Monthly Budget Left</span>
-            <Wallet className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            <span className="truncate">Budget Residuo</span>
+            <Wallet className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-              ${budgetRemaining.toFixed(0)}
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-mono text-xl sm:text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {formatMoney(budgetRemaining, currency, 0)}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              {budgetPct}% used of ${data.budget.totalLimit}
+            <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+              {budgetPct}% su {formatMoney(data.budget.totalLimit, currency, 0)}
             </span>
           </div>
         </button>
@@ -149,45 +171,53 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         <button
           type="button"
           onClick={() => onNavigate('fitness')}
-          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 hover:border-blue-500/50 transition-colors cursor-pointer"
+          className="text-left rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-3.5 sm:p-4 hover:border-blue-500/50 transition-colors cursor-pointer"
         >
           <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>Steps &amp; Hydration</span>
-            <Footprints className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <span className="truncate">Passi &amp; Acqua</span>
+            <Footprints className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-              {todayHealth.steps.toLocaleString()}
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="font-mono text-xl sm:text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+              {todayHealth.steps.toLocaleString('it-IT')}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              {stepPct}% steps · {todayHealth.waterMl}ml water
+            <span className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+              {stepPct}% · {todayHealth.waterMl}ml
             </span>
           </div>
         </button>
       </div>
 
       {/* Main 2-Column Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-stretch">
         {/* Left 7 cols: Pomodoro + Schedule & Reminders */}
-        <div className="lg:col-span-7 flex flex-col gap-6">
+        <div className="lg:col-span-7 flex flex-col gap-5 sm:gap-6">
           <PomodoroTimer
             tasks={data.tasks}
+            mode={pomodoroState.mode}
+            secondsLeft={pomodoroState.secondsLeft}
+            running={pomodoroState.running}
+            selectedTaskId={pomodoroState.selectedTaskId}
+            completedCount={pomodoroState.completedCount}
             focusMinutes={data.preferences.pomodoroFocusMin}
             shortBreakMinutes={data.preferences.pomodoroShortBreakMin}
             longBreakMinutes={data.preferences.pomodoroLongBreakMin}
-            externalTrigger={pomodoroTrigger}
-            onSessionComplete={onPomodoroComplete}
+            onToggleRun={onTogglePomodoroRun}
+            onReset={onResetPomodoro}
+            onSwitchMode={onSwitchPomodoroMode}
+            onSkipPhase={onSkipPomodoroPhase}
+            onSelectTask={onSelectPomodoroTask}
             onUpdateDurations={onUpdatePomodoroDurations}
           />
 
-          <div className="flex-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+          <div className="flex-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Today&apos;s Timeline &amp; Reminders
+                  Agenda &amp; Promemoria di Oggi
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Check off reminders for instant haptic confirmation
+                  Spunta i promemoria per una conferma aptica immediata
                 </p>
               </div>
               <button
@@ -195,18 +225,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 onClick={() => onNavigate('schedule')}
                 className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap cursor-pointer"
               >
-                Full Calendar <ArrowRight className="h-3.5 w-3.5" />
+                Calendario <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2.5">
-                  Scheduled Events
+                  Eventi Programmati
                 </h4>
                 {todayEvents.length === 0 ? (
                   <p className="text-xs text-slate-500 dark:text-slate-400 py-4">
-                    No events scheduled for today. Use Voice Command to schedule one.
+                    Nessun evento oggi. Usa il Comando Vocale per aggiungerne uno.
                   </p>
                 ) : (
                   <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -221,8 +251,8 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                             {ev.location ? ` · ${ev.location}` : ''}
                           </p>
                         </div>
-                        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 capitalize shrink-0">
-                          {ev.category}
+                        <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 shrink-0">
+                          {EVENT_CATEGORY_LABELS[ev.category]}
                         </span>
                       </div>
                     ))}
@@ -232,19 +262,19 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
               <div>
                 <h4 className="text-xs font-semibold text-slate-500 dark:text-slate-400 mb-2.5">
-                  Daily Reminders
+                  Promemoria Giornalieri
                 </h4>
                 <div className="divide-y divide-slate-100 dark:divide-slate-800">
                   {data.reminders.slice(0, 5).map((rem) => (
-                    <label
+                    <div
                       key={rem.id}
-                      className="py-2.5 flex items-start gap-2.5 cursor-pointer group"
+                      className="py-2.5 flex items-start gap-2.5 group"
                     >
                       <button
                         type="button"
                         onClick={() => onToggleReminder(rem.id)}
-                        aria-label={`Mark reminder ${rem.title} ${rem.completed ? 'incomplete' : 'complete'}`}
-                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors cursor-pointer ${
+                        aria-label={`Segna promemoria ${rem.title} ${rem.completed ? 'da fare' : 'completato'}`}
+                        className={`mt-0.5 flex h-5 w-5 sm:h-4 sm:w-4 shrink-0 items-center justify-center rounded border transition-colors cursor-pointer ${
                           rem.completed
                             ? 'border-emerald-600 bg-emerald-600 text-white'
                             : 'border-slate-300 dark:border-slate-600 group-hover:border-blue-500'
@@ -263,10 +293,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                           {rem.title}
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                          {rem.time} · {rem.repeat === 'none' ? 'Once' : rem.repeat}
+                          {rem.time} · {REPEAT_LABELS[rem.repeat]}
                         </p>
                       </div>
-                    </label>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -275,19 +305,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         </div>
 
         {/* Right 5 cols: Eisenhower Top Tasks + Quick Health + Quick Shopping */}
-        <div className="lg:col-span-5 flex flex-col gap-6">
-          {/* Quick Eisenhower Priority Focus */}
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+        <div className="lg:col-span-5 flex flex-col gap-5 sm:gap-6">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Top Eisenhower Priorities
+                Priorità Eisenhower
               </h3>
               <button
                 type="button"
                 onClick={() => onNavigate('projects')}
                 className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap cursor-pointer"
               >
-                Matrix &amp; Board <ArrowRight className="h-3.5 w-3.5" />
+                Matrice &amp; Progetti <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>
             <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
@@ -297,15 +326,15 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     <button
                       type="button"
                       onClick={() => onToggleTaskDone(task.id)}
-                      aria-label={`Complete task ${task.title}`}
-                      className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border border-slate-300 dark:border-slate-600 hover:border-emerald-500 cursor-pointer"
+                      aria-label={`Completa task ${task.title}`}
+                      className="mt-0.5 flex h-5 w-5 sm:h-4 sm:w-4 shrink-0 items-center justify-center rounded border border-slate-300 dark:border-slate-600 hover:border-emerald-500 cursor-pointer"
                     />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
                         {task.title}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                        {task.quadrant} · {task.priority} · Due {task.dueDate}
+                        {task.quadrant} · {PRIORITY_LABELS[task.priority]} · Scad. {formatShortDateIT(task.dueDate)}
                         {task.attachments.length > 0
                           ? ` · ${task.attachments.length} file`
                           : ''}
@@ -319,24 +348,23 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               ))}
               {openTasks.length === 0 && (
                 <p className="py-4 text-xs text-slate-500 dark:text-slate-400">
-                  All priority tasks completed.
+                  Tutti i task prioritari sono stati completati.
                 </p>
               )}
             </div>
           </div>
 
-          {/* Quick Hydration & Steps */}
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Daily Wellness Quick Log
+                Registro Rapido Benessere
               </h3>
               <button
                 type="button"
                 onClick={() => onNavigate('fitness')}
                 className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap cursor-pointer"
               >
-                Health Charts <ArrowRight className="h-3.5 w-3.5" />
+                Grafici Salute <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>
 
@@ -344,7 +372,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               <div>
                 <div className="flex items-center justify-between text-xs mb-1">
                   <span className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
-                    <Droplets className="h-3.5 w-3.5 text-blue-500" /> Water Intake
+                    <Droplets className="h-3.5 w-3.5 text-blue-500" /> Idratazione
                   </span>
                   <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400">
                     {todayHealth.waterMl} / {todayHealth.waterGoalMl} ml ({waterPct}%)
@@ -356,7 +384,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     style={{ width: `${waterPct}%` }}
                   />
                 </div>
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2.5 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => onLogWater(250)}
@@ -376,20 +404,19 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     onClick={() => onLogSteps(1500)}
                     className="ml-auto rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                   >
-                    +1,500 Steps
+                    +1.500 Passi
                   </button>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Quick Shopping List */}
-          <div className="flex-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+          <div className="flex-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <ShoppingBag className="h-4 w-4 text-slate-500 dark:text-slate-400" />
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Shopping List
+                  Lista della Spesa
                 </h3>
               </div>
               <button
@@ -397,7 +424,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 onClick={() => onNavigate('finance')}
                 className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap cursor-pointer"
               >
-                Budget &amp; Sheets <ArrowRight className="h-3.5 w-3.5" />
+                Budget &amp; Fogli <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>
 
@@ -406,13 +433,13 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 type="text"
                 value={quickShop}
                 onChange={(e) => setQuickShop(e.target.value)}
-                placeholder="Quick add grocery or item..."
-                className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                placeholder="Aggiungi articolo rapido..."
+                className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
               />
               <button
                 type="submit"
-                aria-label="Add shopping item"
-                className="rounded-lg bg-slate-900 dark:bg-slate-100 px-3 py-1.5 text-xs font-medium text-white dark:text-slate-900 hover:opacity-90 cursor-pointer"
+                aria-label="Aggiungi alla lista della spesa"
+                className="rounded-lg bg-slate-900 dark:bg-slate-100 px-3 py-2 text-xs font-medium text-white dark:text-slate-900 hover:opacity-90 cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
@@ -420,15 +447,16 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {data.shoppingList.slice(0, 4).map((item) => (
-                <label
+                <div
                   key={item.id}
-                  className="py-2 flex items-center justify-between gap-2 cursor-pointer"
+                  className="py-2 flex items-center justify-between gap-2"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <button
                       type="button"
                       onClick={() => onToggleShoppingItem(item.id)}
-                      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
+                      aria-label={`Segna ${item.name}`}
+                      className={`flex h-5 w-5 sm:h-4 sm:w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
                         item.checked
                           ? 'border-emerald-600 bg-emerald-600 text-white'
                           : 'border-slate-300 dark:border-slate-600'
@@ -447,9 +475,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     </span>
                   </div>
                   <span className="font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400 shrink-0">
-                    ${item.estimatedPrice.toFixed(2)}
+                    {formatMoney(item.estimatedPrice, currency)}
                   </span>
-                </label>
+                </div>
               ))}
             </div>
           </div>

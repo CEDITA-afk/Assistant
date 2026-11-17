@@ -29,10 +29,10 @@ const QUADRANTS: Array<{
   subtitle: string;
   defaultPriority: TaskPriority;
 }> = [
-  { id: 'Q1', title: 'Q1 · Do First', subtitle: 'Urgent & Important', defaultPriority: 'critical' },
-  { id: 'Q2', title: 'Q2 · Schedule', subtitle: 'Not Urgent & Important', defaultPriority: 'high' },
-  { id: 'Q3', title: 'Q3 · Delegate', subtitle: 'Urgent & Not Important', defaultPriority: 'medium' },
-  { id: 'Q4', title: 'Q4 · Eliminate', subtitle: 'Neither Urgent Nor Important', defaultPriority: 'low' },
+  { id: 'Q1', title: 'Q1 · Fai Subito', subtitle: 'Urgente e Importante', defaultPriority: 'critical' },
+  { id: 'Q2', title: 'Q2 · Pianifica', subtitle: 'Non Urgente ma Importante', defaultPriority: 'high' },
+  { id: 'Q3', title: 'Q3 · Delega', subtitle: 'Urgente ma Non Importante', defaultPriority: 'medium' },
+  { id: 'Q4', title: 'Q4 · Elimina', subtitle: 'Né Urgente Né Importante', defaultPriority: 'low' },
 ];
 
 export const EisenhowerModule: React.FC<EisenhowerModuleProps> = ({
@@ -89,7 +89,7 @@ export const EisenhowerModule: React.FC<EisenhowerModuleProps> = ({
                 setDragTaskId(null);
               }
             }}
-            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 min-h-[260px] flex flex-col justify-between gap-3"
+            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 min-h-[240px] flex flex-col justify-between gap-3"
           >
             <div>
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5 mb-3">
@@ -130,7 +130,7 @@ export const EisenhowerModule: React.FC<EisenhowerModuleProps> = ({
                 ))}
                 {qTasks.length === 0 && (
                   <p className="text-xs text-slate-400 py-6 text-center">
-                    Drag tasks here or quick-add below for {q.id}
+                    Trascina qui o aggiungi un task rapido per {q.id}
                   </p>
                 )}
               </div>
@@ -149,12 +149,12 @@ export const EisenhowerModule: React.FC<EisenhowerModuleProps> = ({
                 onChange={(e) =>
                   setQuickInputs((prev) => ({ ...prev, [q.id]: e.target.value }))
                 }
-                placeholder={`Quick add to ${q.id}...`}
+                placeholder={`Aggiungi rapido in ${q.id}...`}
                 className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
               />
               <button
                 type="submit"
-                aria-label={`Add task to ${q.id}`}
+                aria-label={`Aggiungi task in ${q.id}`}
                 className="rounded-lg bg-slate-900 dark:bg-slate-100 p-1.5 text-white dark:text-slate-900 hover:opacity-90 cursor-pointer"
               >
                 <Plus className="h-3.5 w-3.5" />

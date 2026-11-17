@@ -3,6 +3,7 @@ import {
   FileText,
   FolderKanban,
   Plus,
+  Search,
   Sparkles,
   Trash2,
   X,
@@ -23,6 +24,7 @@ import { GoogleTasksModule } from './projects/GoogleTasksModule';
 import { KanbanModule } from './projects/KanbanModule';
 
 type ProjectTab = 'eisenhower' | 'kanban' | 'gantt' | 'google_tasks';
+type TaskQuickFilter = 'all' | 'today' | 'overdue' | 'attachments';
 
 interface ProjectsViewProps {
   projects: Project[];
@@ -64,6 +66,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const today = getTodayISO();
   const [tab, setTab] = useState<ProjectTab>('kanban');
   const [activeProjectId, setActiveProjectId] = useState<string>('ALL');
+  const [taskQuery, setTaskQuery] = useState('');
+  const [quickFilter, setQuickFilter] = useState<TaskQuickFilter>('all');
+
   const [showNewProject, setShowNewProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDesc, setNewProjectDesc] = useState('');
@@ -72,7 +77,6 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [attachModalTaskId, setAttachModalTaskId] = useState<string | null>(null);
   const [editingTask, setEditingTask] = useState<TaskItem | null>(null);
 
-  // Add Task Form
   const [title, setTitle] = useState('');
   const [quadrant, setQuadrant] = useState<EisenhowerQuadrant>('Q1');
   const [priority, setPriority] = useState<TaskPriority>('high');
@@ -80,9 +84,20 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [dueDate, setDueDate] = useState(today);
 
   const filteredTasks = useMemo(() => {
-    if (activeProjectId === 'ALL') return tasks;
-    return tasks.filter((t) => t.projectId === activeProjectId);
-  }, [tasks, activeProjectId]);
+    const q = taskQuery.trim().toLowerCase();
+    return tasks.filter((t) => {
+      if (activeProjectId !== 'ALL' && t.projectId !== activeProjectId) return false;
+      if (quickFilter === 'today' && t.dueDate !== today) return false;
+      if (quickFilter === 'overdue' && !(t.dueDate < today && t.kanbanStatus !== 'done'))
+        return false;
+      if (quickFilter === 'attachments' && t.attachments.length === 0) return false;
+      if (q) {
+        const hay = `${t.title} ${t.notes || ''} ${t.quadrant}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tasks, activeProjectId, quickFilter, taskQuery, today]);
 
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,19 +156,19 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            Projects: Kanban, Gantt &amp; Eisenhower Tasks
+            Progetti: Kanban, Gantt &amp; Matrice di Eisenhower
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Manage projects across Kanban, Gantt, Eisenhower Matrix, and Google Tasks with Drive attachments
+            Gestisci progetti su Kanban, Gantt, Eisenhower e Google Tasks con allegati Drive
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-1">
+          <div className="flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-1 overflow-x-auto">
             {([
               ['kanban', 'Kanban'],
               ['eisenhower', 'Eisenhower'],
@@ -181,18 +196,18 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap cursor-pointer"
           >
             <Sparkles className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-            Auto-Attach Drive Files
+            Allega File Drive Auto
           </button>
         </div>
       </div>
 
-      {/* Project Selector Strip */}
+      {/* Selettore Progetti + Filtri Rapidi Consultazione */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 mr-2">
               <FolderKanban className="h-3.5 w-3.5 text-blue-500" />
-              Projects:
+              Progetti:
             </span>
             <button
               type="button"
@@ -203,7 +218,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                   : 'bg-slate-100 dark:bg-[#0B0F17] text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
               }`}
             >
-              All Projects ({tasks.length})
+              Tutti ({tasks.length})
             </button>
             {projects.map((proj) => {
               const count = tasks.filter((t) => t.projectId === proj.id).length;
@@ -228,7 +243,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         onDeleteProject(proj.id);
                         setActiveProjectId('ALL');
                       }}
-                      title={`Delete project ${proj.name}`}
+                      title={`Elimina progetto ${proj.name}`}
                       className="p-1 text-slate-400 hover:text-red-500 cursor-pointer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -244,8 +259,44 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             onClick={() => setShowNewProject((v) => !v)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap cursor-pointer"
           >
-            <Plus className="h-3.5 w-3.5" /> New Project
+            <Plus className="h-3.5 w-3.5" /> Nuovo Progetto
           </button>
+        </div>
+
+        {/* Barra ricerca task e filtri rapidi */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={taskQuery}
+              onChange={(e) => setTaskQuery(e.target.value)}
+              placeholder="Cerca task per titolo o nota..."
+              className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {([
+              ['all', 'Tutti'],
+              ['today', 'Oggi'],
+              ['overdue', 'In Ritardo'],
+              ['attachments', 'Con File Drive'],
+            ] as Array<[TaskQuickFilter, string]>).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setQuickFilter(id)}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer ${
+                  quickFilter === id
+                    ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900'
+                    : 'bg-slate-100 dark:bg-[#0B0F17] text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {showNewProject && (
@@ -257,14 +308,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               type="text"
               value={newProjectName}
               onChange={(e) => setNewProjectName(e.target.value)}
-              placeholder="Project name (e.g., Mobile App Launch)"
+              placeholder="Nome progetto (es. Lancio App Mobile)"
               className="sm:col-span-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
             />
             <input
               type="text"
               value={newProjectDesc}
               onChange={(e) => setNewProjectDesc(e.target.value)}
-              placeholder="Brief goal or description"
+              placeholder="Obiettivo o descrizione breve"
               className="sm:col-span-5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
             />
             <input
@@ -277,13 +328,13 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               type="submit"
               className="sm:col-span-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 cursor-pointer"
             >
-              Save
+              Salva
             </button>
           </form>
         )}
       </div>
 
-      {/* Add Task Bar */}
+      {/* Barra Aggiungi Task */}
       <form
         onSubmit={handleCreateTask}
         className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-3"
@@ -292,7 +343,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Add task to selected project..."
+          placeholder="Aggiungi task al progetto selezionato..."
           className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none"
         />
         <div className="flex flex-wrap items-center gap-2">
@@ -301,45 +352,45 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             onChange={(e) => setQuadrant(e.target.value as EisenhowerQuadrant)}
             className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100"
           >
-            <option value="Q1">Q1 · Do First</option>
-            <option value="Q2">Q2 · Schedule</option>
-            <option value="Q3">Q3 · Delegate</option>
-            <option value="Q4">Q4 · Eliminate</option>
+            <option value="Q1">Q1 · Fai Subito</option>
+            <option value="Q2">Q2 · Pianifica</option>
+            <option value="Q3">Q3 · Delega</option>
+            <option value="Q4">Q4 · Elimina</option>
           </select>
           <select
             value={priority}
             onChange={(e) => setPriority(e.target.value as TaskPriority)}
             className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100"
           >
-            <option value="critical">Critical</option>
-            <option value="high">High</option>
-            <option value="medium">Medium</option>
-            <option value="low">Low</option>
+            <option value="critical">Critica</option>
+            <option value="high">Alta</option>
+            <option value="medium">Media</option>
+            <option value="low">Bassa</option>
           </select>
           <input
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            aria-label="Start date"
+            aria-label="Data inizio"
             className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-2 font-mono text-xs text-slate-900 dark:text-slate-100"
           />
           <input
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            aria-label="Due date"
+            aria-label="Scadenza"
             className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-2 font-mono text-xs text-slate-900 dark:text-slate-100"
           />
           <button
             type="submit"
             className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 whitespace-nowrap cursor-pointer"
           >
-            <Plus className="h-3.5 w-3.5" /> Add Task
+            <Plus className="h-3.5 w-3.5" /> Aggiungi Task
           </button>
         </div>
       </form>
 
-      {/* ACTIVE MODULE */}
+      {/* MODULO ATTIVO */}
       {tab === 'kanban' && (
         <KanbanModule
           tasks={filteredTasks}
@@ -398,7 +449,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         />
       )}
 
-      {/* TASK EDITOR MODAL */}
+      {/* MODALE MODIFICA TASK */}
       {editingTask && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -408,7 +459,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           <div className="w-full max-w-lg rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Edit Project Task
+                Modifica Task di Progetto
               </h3>
               <button
                 type="button"
@@ -421,7 +472,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
             <div className="space-y-3">
               <label className="block text-xs text-slate-500 dark:text-slate-400">
-                Title
+                Titolo
                 <input
                   type="text"
                   value={editingTask.title}
@@ -433,7 +484,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               </label>
 
               <label className="block text-xs text-slate-500 dark:text-slate-400">
-                Notes
+                Note
                 <textarea
                   rows={3}
                   value={editingTask.notes || ''}
@@ -446,7 +497,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs text-slate-500 dark:text-slate-400">
-                  Project
+                  Progetto
                   <select
                     value={editingTask.projectId || ''}
                     onChange={(e) =>
@@ -457,7 +508,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     }
                     className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100"
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">Non assegnato</option>
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
@@ -467,7 +518,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 </label>
 
                 <label className="block text-xs text-slate-500 dark:text-slate-400">
-                  Priority
+                  Priorità
                   <select
                     value={editingTask.priority}
                     onChange={(e) =>
@@ -478,15 +529,15 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     }
                     className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100"
                   >
-                    <option value="critical">Critical</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
+                    <option value="critical">Critica</option>
+                    <option value="high">Alta</option>
+                    <option value="medium">Media</option>
+                    <option value="low">Bassa</option>
                   </select>
                 </label>
 
                 <label className="block text-xs text-slate-500 dark:text-slate-400">
-                  Eisenhower Quadrant
+                  Quadrante Eisenhower
                   <select
                     value={editingTask.quadrant}
                     onChange={(e) =>
@@ -497,15 +548,15 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     }
                     className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100"
                   >
-                    <option value="Q1">Q1 · Do First</option>
-                    <option value="Q2">Q2 · Schedule</option>
-                    <option value="Q3">Q3 · Delegate</option>
-                    <option value="Q4">Q4 · Eliminate</option>
+                    <option value="Q1">Q1 · Fai Subito</option>
+                    <option value="Q2">Q2 · Pianifica</option>
+                    <option value="Q3">Q3 · Delega</option>
+                    <option value="Q4">Q4 · Elimina</option>
                   </select>
                 </label>
 
                 <label className="block text-xs text-slate-500 dark:text-slate-400">
-                  Kanban Column
+                  Colonna Kanban
                   <select
                     value={editingTask.kanbanStatus}
                     onChange={(e) =>
@@ -516,15 +567,15 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     }
                     className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-2 text-xs text-slate-900 dark:text-slate-100"
                   >
-                    <option value="backlog">Backlog</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="review">Review</option>
-                    <option value="done">Done</option>
+                    <option value="backlog">Da Fare</option>
+                    <option value="in_progress">In Corso</option>
+                    <option value="review">Revisione</option>
+                    <option value="done">Completato</option>
                   </select>
                 </label>
 
                 <label className="block text-xs text-slate-500 dark:text-slate-400">
-                  Start Date
+                  Data Inizio
                   <input
                     type="date"
                     value={editingTask.startDate}
@@ -536,7 +587,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 </label>
 
                 <label className="block text-xs text-slate-500 dark:text-slate-400">
-                  Due Date
+                  Scadenza
                   <input
                     type="date"
                     value={editingTask.dueDate}
@@ -555,7 +606,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 onClick={() => setEditingTask(null)}
                 className="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer"
               >
-                Cancel
+                Annulla
               </button>
               <button
                 type="button"
@@ -565,14 +616,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 }}
                 className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 cursor-pointer"
               >
-                Save Changes
+                Salva Modifiche
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* DRIVE ATTACHMENT PICKER MODAL */}
+      {/* MODALE ALLEGATI DRIVE */}
       {attachModalTask && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -583,7 +634,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Attach Drive File to Task
+                  Allega File Drive al Task
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-sm">
                   {attachModalTask.title}
@@ -594,7 +645,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 onClick={() => setAttachModalTaskId(null)}
                 className="rounded-lg px-2.5 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
-                Close
+                Chiudi
               </button>
             </div>
 
@@ -602,8 +653,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
               {driveFiles.length === 0 ? (
                 <p className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
                   {isGoogleConnected
-                    ? 'No Drive files loaded yet. Open Notes & Drive to refresh your Drive index.'
-                    : 'Connect your Google account in Sync & Encryption to browse and attach real Google Drive files.'}
+                    ? 'Nessun file Drive caricato. Apri "Note & Drive" per aggiornare la lista dei file.'
+                    : 'Connetti il tuo account Google in Impostazioni per sfogliare e allegare file reali da Drive.'}
                 </p>
               ) : (
                 driveFiles.map((file) => {
@@ -632,7 +683,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                         onClick={() => handleAttachDriveFile(attachModalTask, file)}
                         className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap cursor-pointer"
                       >
-                        {alreadyAttached ? 'Attached' : 'Attach'}
+                        {alreadyAttached ? 'Allegato' : 'Allega'}
                       </button>
                     </div>
                   );

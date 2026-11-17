@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import type { Project, TaskItem } from '../../types/workspace';
+import { formatShortDateIT } from '../../utils/formatters';
 import { getTodayISO } from '../../utils/storage';
 
 interface GanttModuleProps {
@@ -26,8 +27,8 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
   onEditTask,
 }) => {
   const today = getTodayISO();
-  const [windowOffset, setWindowOffset] = useState(-4);
-  const [spanDays, setSpanDays] = useState<14 | 21>(14);
+  const [windowOffset, setWindowOffset] = useState(-3);
+  const [spanDays, setSpanDays] = useState<14 | 30>(14);
 
   const ganttDays = useMemo(() => {
     return Array.from({ length: spanDays }, (_, idx) => {
@@ -36,27 +37,30 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
       const dt = new Date(y, m - 1, d);
       return {
         iso,
-        label: dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        label: dt.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }),
         isToday: iso === today,
       };
     });
   }, [today, windowOffset, spanDays]);
 
   return (
-    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-4">
+    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Interactive Project Gantt Timeline
+            Timeline Gantt Interattiva
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Adjust task schedule dates, shift timelines, and update completion progress inline
+            Sposta le date, cambia zoom (2 settimane o mese) e aggiorna l&apos;avanzamento
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-[#0B0F17] p-1">
-            {([14, 21] as const).map((days) => (
+            {([
+              [14, '14 Giorni'],
+              [30, '30 Giorni'],
+            ] as const).map(([days, label]) => (
               <button
                 key={days}
                 type="button"
@@ -67,7 +71,7 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
                     : 'text-slate-500 dark:text-slate-400'
                 }`}
               >
-                {days} Days
+                {label}
               </button>
             ))}
           </div>
@@ -75,22 +79,22 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
           <button
             type="button"
             onClick={() => setWindowOffset((w) => w - 7)}
-            aria-label="Previous week"
+            aria-label="Settimana precedente"
             className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
           <button
             type="button"
-            onClick={() => setWindowOffset(-4)}
+            onClick={() => setWindowOffset(-3)}
             className="rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
           >
-            Today
+            Oggi
           </button>
           <button
             type="button"
             onClick={() => setWindowOffset((w) => w + 7)}
-            aria-label="Next week"
+            aria-label="Settimana successiva"
             className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
           >
             <ChevronRight className="h-4 w-4" />
@@ -99,22 +103,24 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
       </div>
 
       <div className="overflow-x-auto">
-        <div className={spanDays === 21 ? 'min-w-[1120px]' : 'min-w-[860px]'}>
+        <div className={spanDays === 30 ? 'min-w-[1380px]' : 'min-w-[860px]'}>
           <div
             className="grid border-b border-slate-200 dark:border-slate-800 pb-2 text-[11px] font-medium text-slate-500 dark:text-slate-400"
             style={{
-              gridTemplateColumns: `280px repeat(${spanDays}, minmax(36px, 1fr))`,
+              gridTemplateColumns: `260px repeat(${spanDays}, minmax(34px, 1fr))`,
             }}
           >
-            <div>Task · Project · Dates</div>
+            <div>Task · Progetto · Date</div>
             {ganttDays.map((day) => (
               <div
                 key={day.iso}
-                className={`text-center tabular-nums ${
-                  day.isToday ? 'font-semibold text-blue-600 dark:text-blue-400' : ''
+                className={`text-center tabular-nums px-0.5 rounded ${
+                  day.isToday
+                    ? 'font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10'
+                    : ''
                 }`}
               >
-                {day.label}
+                {day.isToday ? 'OGGI' : day.label}
               </div>
             ))}
           </div>
@@ -122,7 +128,7 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {tasks.length === 0 ? (
               <p className="py-8 text-center text-xs text-slate-400">
-                No tasks in this project yet.
+                Nessun task presente in questo filtro.
               </p>
             ) : (
               tasks.map((task) => {
@@ -145,7 +151,7 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
                     key={task.id}
                     className="grid items-center py-3"
                     style={{
-                      gridTemplateColumns: `280px repeat(${spanDays}, minmax(36px, 1fr))`,
+                      gridTemplateColumns: `260px repeat(${spanDays}, minmax(34px, 1fr))`,
                     }}
                   >
                     <div className="pr-4 min-w-0">
@@ -156,15 +162,15 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
                         <button
                           type="button"
                           onClick={() => onEditTask(task)}
-                          aria-label={`Edit ${task.title}`}
+                          aria-label={`Modifica ${task.title}`}
                           className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer shrink-0"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
                       </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                        {project ? project.name : 'Unassigned'} · {task.startDate} →{' '}
-                        {task.dueDate}
+                        {project ? project.name : 'Non assegnato'} · {formatShortDateIT(task.startDate)} →{' '}
+                        {formatShortDateIT(task.dueDate)}
                       </p>
                       <div className="mt-1.5 flex items-center gap-2">
                         <input
@@ -181,7 +187,7 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
                             });
                           }}
                           className="w-24 accent-blue-600 cursor-pointer"
-                          aria-label={`Progress for ${task.title}`}
+                          aria-label={`Avanzamento per ${task.title}`}
                         />
                         <span className="font-mono text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
                           {task.progress}%
@@ -194,10 +200,10 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
                               dueDate: shiftDateISO(task.dueDate, -1),
                             })
                           }
-                          title="Shift earlier 1 day"
+                          title="Anticipa di 1 giorno"
                           className="rounded border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                         >
-                          -1d
+                          -1g
                         </button>
                         <button
                           type="button"
@@ -207,10 +213,10 @@ export const GanttModule: React.FC<GanttModuleProps> = ({
                               dueDate: shiftDateISO(task.dueDate, 1),
                             })
                           }
-                          title="Shift later 1 day"
+                          title="Posticipa di 1 giorno"
                           className="rounded border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                         >
-                          +1d
+                          +1g
                         </button>
                       </div>
                     </div>

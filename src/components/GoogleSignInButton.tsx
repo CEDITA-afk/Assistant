@@ -9,7 +9,7 @@ interface GoogleSignInButtonProps {
 export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
   onClick,
   loading = false,
-  label = 'Sign in with Google',
+  label = 'Accedi con Google',
 }) => {
   return (
     <button
@@ -47,7 +47,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
           </svg>
         </div>
         <span className="gsi-material-button-contents">
-          {loading ? 'Connecting...' : label}
+          {loading ? 'Connessione...' : label}
         </span>
       </div>
     </button>

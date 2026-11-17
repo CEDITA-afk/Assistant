@@ -9,6 +9,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { HealthDayLog, WorkoutEntry } from '../types/workspace';
+import { WORKOUT_LABELS } from '../utils/formatters';
 import { getTodayISO } from '../utils/storage';
 
 interface FitnessHealthViewProps {
@@ -86,9 +87,8 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
           const steps = Number(parsed.steps || parsed.stepCount || 2500);
           const kcal = Number(parsed.calories || parsed.kcal || 180);
           onImportHealthData(steps, kcal);
-          setHealthImportMsg(`Imported ${steps} steps and ${kcal} kcal from Health JSON.`);
+          setHealthImportMsg(`Importati ${steps} passi e ${kcal} kcal dal file JSON Salute.`);
         } else {
-          // CSV support (Google Fit / Health Connect Takeout CSV)
           const lines = content.trim().split(/\r?\n/);
           let steps = 0;
           let kcal = 0;
@@ -100,10 +100,10 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
             if (Number.isFinite(maybeNum2)) kcal += Math.round(maybeNum2);
           });
           onImportHealthData(steps || 1500, kcal || 120);
-          setHealthImportMsg(`Imported Health CSV metrics (${steps || 1500} steps).`);
+          setHealthImportMsg(`Importate metriche CSV Salute (${steps || 1500} passi).`);
         }
       } catch {
-        setHealthImportMsg('Could not parse Health export file.');
+        setHealthImportMsg('Impossibile leggere il file esportato da Salute.');
       }
     };
     reader.readAsText(file);
@@ -127,10 +127,10 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            Fitness, Nutrition &amp; Hydration Analytics
+            Fitness, Calorie &amp; Idratazione
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Daily step, kcal, and water targets with 7-day progress charts, calendar workout sync, and Health import
+            Obiettivi giornalieri con grafici a 7 giorni, sync allenamenti in agenda e importazione Health Connect / Fit
           </p>
         </div>
 
@@ -143,12 +143,12 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
               className="rounded border-slate-300 text-blue-600"
             />
             <CalendarPlus className="h-3.5 w-3.5 text-blue-500" />
-            Sync Workouts to Schedule
+            Sincronizza allenamenti in Agenda
           </label>
 
           <label className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap cursor-pointer">
             <Upload className="h-3.5 w-3.5" />
-            Import Health Connect / Fit (JSON/CSV)
+            Importa Health Connect / Fit (JSON/CSV)
             <input
               type="file"
               accept=".json,.csv"
@@ -165,14 +165,14 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
         </div>
       )}
 
-      {/* 3 Progress Rings */}
+      {/* 3 Anelli Progresso */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <GoalRingCard
-          title="Daily Steps"
+          title="Passi Giornalieri"
           icon={<Footprints className="h-4 w-4 text-blue-600 dark:text-blue-400" />}
           value={todayLog.steps}
           goal={todayLog.stepGoal}
-          unit="steps"
+          unit="passi"
           colorClass="text-blue-600 dark:text-blue-500"
           onGoalChange={(next) =>
             onUpdateGoals(next, todayLog.kcalGoal, todayLog.waterGoalMl)
@@ -191,14 +191,14 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
                 type="submit"
                 className="flex-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 cursor-pointer"
               >
-                + Add Steps
+                + Aggiungi Passi
               </button>
             </form>
           }
         />
 
         <GoalRingCard
-          title="Active Energy Burned"
+          title="Calorie Attive Bruciate"
           icon={<Flame className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
           value={todayLog.kcalBurned}
           goal={todayLog.kcalGoal}
@@ -209,13 +209,13 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
           }
           actions={
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              {todayLog.workouts.length} workout(s) logged today
+              {todayLog.workouts.length} allenament{todayLog.workouts.length === 1 ? 'o' : 'i'} registrat{todayLog.workouts.length === 1 ? 'o' : 'i'} oggi
             </p>
           }
         />
 
         <GoalRingCard
-          title="Water Hydration"
+          title="Idratazione Acqua"
           icon={<Droplets className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />}
           value={todayLog.waterMl}
           goal={todayLog.waterGoalMl}
@@ -245,18 +245,18 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
         />
       </div>
 
-      {/* 7-Day Visual Progress Chart + Workout Logger */}
+      {/* Grafico 7 giorni + Registro Allenamenti */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+        <div className="lg:col-span-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              7-Day Visual Progress Chart
+              Andamento Ultimi 7 Giorni
             </h3>
             <div className="flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-[#0B0F17] p-1">
               {([
-                ['steps', 'Steps'],
+                ['steps', 'Passi'],
                 ['kcal', 'Kcal'],
-                ['water', 'Water'],
+                ['water', 'Acqua'],
               ] as const).map(([key, label]) => (
                 <button
                   key={key}
@@ -276,7 +276,6 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
 
           <div className="mt-5">
             <svg viewBox="0 0 560 210" className="w-full h-52 overflow-visible">
-              {/* Goal Line */}
               {(() => {
                 const goalVal =
                   chartMetric === 'steps'
@@ -302,7 +301,7 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
                       textAnchor="end"
                       className="fill-slate-400 text-[10px] font-mono"
                     >
-                      Goal: {goalVal.toLocaleString()}
+                      Obiettivo: {goalVal.toLocaleString('it-IT')}
                     </text>
                   </g>
                 );
@@ -325,6 +324,7 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
                 const x = 35 + idx * 72;
                 const y = 170 - barH;
                 const metGoal = val >= goal;
+                const [, mm, dd] = day.date.split('-');
 
                 return (
                   <g key={day.date}>
@@ -358,7 +358,7 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
                       textAnchor="middle"
                       className="fill-slate-500 dark:fill-slate-400 text-[10px] font-mono"
                     >
-                      {day.date.slice(5)}
+                      {dd}/{mm}
                     </text>
                   </g>
                 );
@@ -368,11 +368,11 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
         </div>
 
         {/* Workout Logger */}
-        <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-4">
+        <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5 space-y-4">
           <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
             <Activity className="h-4 w-4 text-emerald-500" />
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Log Workout &amp; Calendar Sync
+              Registra Allenamento
             </h3>
           </div>
 
@@ -382,14 +382,14 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
               onChange={(e) => setWkType(e.target.value as WorkoutEntry['type'])}
               className="col-span-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
             >
-              <option value="Running">Running</option>
-              <option value="Strength">Strength Training</option>
-              <option value="Cycling">Cycling</option>
-              <option value="Walking">Walking</option>
-              <option value="Yoga">Yoga &amp; Mobility</option>
+              {(Object.keys(WORKOUT_LABELS) as WorkoutEntry['type'][]).map((k) => (
+                <option key={k} value={k}>
+                  {WORKOUT_LABELS[k]}
+                </option>
+              ))}
             </select>
             <label className="text-[11px] text-slate-500 dark:text-slate-400">
-              Duration (min)
+              Durata (min)
               <input
                 type="number"
                 min={5}
@@ -399,7 +399,7 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
               />
             </label>
             <label className="text-[11px] text-slate-500 dark:text-slate-400">
-              Calories (kcal)
+              Calorie (kcal)
               <input
                 type="number"
                 min={10}
@@ -409,7 +409,7 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
               />
             </label>
             <label className="col-span-2 text-[11px] text-slate-500 dark:text-slate-400">
-              Time
+              Orario
               <input
                 type="time"
                 value={wkTime}
@@ -421,7 +421,7 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
               type="submit"
               className="col-span-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-700 cursor-pointer"
             >
-              <Plus className="h-3.5 w-3.5" /> Log Workout
+              <Plus className="h-3.5 w-3.5" /> Salva Allenamento
             </button>
           </form>
 
@@ -430,10 +430,10 @@ export const FitnessHealthView: React.FC<FitnessHealthViewProps> = ({
               <div key={w.id} className="py-2.5 flex items-center justify-between text-xs">
                 <div>
                   <p className="font-medium text-slate-900 dark:text-slate-100">
-                    {w.type} · {w.durationMin} min
+                    {WORKOUT_LABELS[w.type] || w.type} · {w.durationMin} min
                   </p>
                   <p className="text-slate-500 dark:text-slate-400 tabular-nums">
-                    {w.time} {w.syncedToCalendar ? '· Added to schedule' : ''}
+                    {w.time} {w.syncedToCalendar ? '· In Agenda' : ''}
                   </p>
                 </div>
                 <span className="font-mono tabular-nums font-medium text-amber-600 dark:text-amber-400">
@@ -475,7 +475,7 @@ const GoalRingCard: React.FC<GoalRingCardProps> = ({
   const offset = c * (1 - pct / 100);
 
   return (
-    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
       <div className="flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
           {icon}
@@ -513,16 +513,16 @@ const GoalRingCard: React.FC<GoalRingCardProps> = ({
 
         <div className="min-w-0 flex-1">
           <p className="font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-            {value.toLocaleString()}
+            {value.toLocaleString('it-IT')}
           </p>
           <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <span>Goal:</span>
+            <span>Obiettivo:</span>
             <input
               type="number"
               min={1}
               value={goal}
               onChange={(e) => onGoalChange(Math.max(1, Number(e.target.value) || goal))}
-              aria-label={`${title} daily goal`}
+              aria-label={`Obiettivo giornaliero ${title}`}
               className="w-20 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-[#0B0F17] px-1.5 py-0.5 font-mono text-xs tabular-nums text-slate-900 dark:text-slate-100"
             />
             <span>{unit}</span>

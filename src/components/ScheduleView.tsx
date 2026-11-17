@@ -9,6 +9,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { CalendarEvent, ReminderItem } from '../types/workspace';
+import {
+  EVENT_CATEGORY_LABELS,
+  formatShortDateIT,
+  REPEAT_LABELS,
+} from '../utils/formatters';
 import { getTodayISO } from '../utils/storage';
 
 interface ScheduleViewProps {
@@ -41,24 +46,22 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   const today = getTodayISO();
   const [selectedDate, setSelectedDate] = useState(today);
 
-  // Add Event form
   const [evTitle, setEvTitle] = useState('');
   const [evStart, setEvStart] = useState('10:00');
   const [evEnd, setEvEnd] = useState('11:00');
   const [evCategory, setEvCategory] = useState<CalendarEvent['category']>('work');
   const [evLocation, setEvLocation] = useState('');
 
-  // Add Reminder form
   const [remTitle, setRemTitle] = useState('');
   const [remTime, setRemTime] = useState('16:00');
   const [remRepeat, setRemRepeat] = useState<ReminderItem['repeat']>('none');
 
-  // Generate 14-day calendar strip + month overview
+  // Griglia mensile con settimana a partire da Lunedì
   const calendarDays = useMemo(() => {
     const [y, m] = selectedDate.split('-').map(Number);
     const firstDay = new Date(y, m - 1, 1);
     const daysInMonth = new Date(y, m, 0).getDate();
-    const startWeekday = firstDay.getDay();
+    const startWeekday = (firstDay.getDay() + 6) % 7;
 
     const cells: Array<{ date: string | null; dayNum: number | null }> = [];
     for (let i = 0; i < startWeekday; i++) {
@@ -81,10 +84,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
 
   const monthLabel = useMemo(() => {
     const [y, m] = selectedDate.split('-').map(Number);
-    return new Date(y, m - 1, 1).toLocaleDateString('en-US', {
+    const raw = new Date(y, m - 1, 1).toLocaleDateString('it-IT', {
       month: 'long',
       year: 'numeric',
     });
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
   }, [selectedDate]);
 
   const shiftMonth = (delta: number) => {
@@ -129,10 +133,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            Calendar &amp; Daily Reminders
+            Calendario &amp; Promemoria Giornalieri
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Works locally offline or syncs seamlessly with Google Calendar
+            Funziona offline sul dispositivo o si sincronizza con Google Calendar
           </p>
         </div>
 
@@ -142,7 +146,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             onClick={() => setSelectedDate(today)}
             className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap cursor-pointer"
           >
-            Jump to Today
+            Vai a Oggi
           </button>
           <button
             type="button"
@@ -153,17 +157,17 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             <RefreshCw className={`h-3.5 w-3.5 ${syncingCalendar ? 'animate-spin' : ''}`} />
             {isGoogleConnected
               ? syncingCalendar
-                ? 'Syncing Calendar...'
-                : 'Pull Google Calendar'
-              : 'Connect Google to Sync'}
+                ? 'Sincronizzazione...'
+                : 'Importa Google Calendar'
+              : 'Connetti Google per Sync'}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Month Grid + Add Event */}
+        {/* Griglia mensile + Aggiungi Evento */}
         <div className="lg:col-span-7 space-y-6">
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                 {monthLabel}
@@ -174,29 +178,29 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                   onClick={() => shiftMonth(-1)}
                   className="rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
-                  Prev
+                  Prec
                 </button>
                 <button
                   type="button"
                   onClick={() => shiftMonth(1)}
                   className="rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
-                  Next
+                  Succ
                 </button>
               </div>
             </div>
 
             <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-2">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+              {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map((d) => (
                 <div key={d} className="py-1">
                   {d}
                 </div>
               ))}
             </div>
 
-            <div className="grid grid-cols-7 gap-1.5">
+            <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
               {calendarDays.map((cell, idx) => {
-                if (!cell.date) return <div key={`empty-${idx}`} className="h-14" />;
+                if (!cell.date) return <div key={`empty-${idx}`} className="h-12 sm:h-14" />;
                 const count = events.filter((e) => e.date === cell.date).length;
                 const isSelected = cell.date === selectedDate;
                 const isToday = cell.date === today;
@@ -206,7 +210,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                     key={cell.date}
                     type="button"
                     onClick={() => setSelectedDate(cell.date!)}
-                    className={`h-14 rounded-lg border p-1.5 flex flex-col items-start justify-between text-left transition-colors cursor-pointer ${
+                    className={`h-12 sm:h-14 rounded-lg border p-1.5 flex flex-col items-start justify-between text-left transition-colors cursor-pointer ${
                       isSelected
                         ? 'border-blue-600 bg-blue-600/10 text-blue-700 dark:text-blue-300'
                         : isToday
@@ -219,7 +223,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                     </span>
                     {count > 0 && (
                       <span className="text-[10px] font-medium text-blue-600 dark:text-blue-400 tabular-nums">
-                        {count} evt
+                        {count} ev
                       </span>
                     )}
                   </button>
@@ -228,20 +232,20 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             </div>
           </div>
 
-          {/* Schedule Event Form */}
+          {/* Aggiungi Evento */}
           <form
             onSubmit={handleCreateEvent}
-            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-3"
+            className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5 space-y-3"
           >
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Add Event on {selectedDate}
+              Nuovo Evento il {formatShortDateIT(selectedDate)}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input
                 type="text"
                 value={evTitle}
                 onChange={(e) => setEvTitle(e.target.value)}
-                placeholder="Event title (or use Voice Command)"
+                placeholder="Titolo evento (oppure usa Comando Vocale)"
                 className="sm:col-span-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none"
               />
               <div className="flex items-center gap-2">
@@ -251,7 +255,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                   onChange={(e) => setEvStart(e.target.value)}
                   className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 font-mono text-xs text-slate-900 dark:text-slate-100"
                 />
-                <span className="text-xs text-slate-400">to</span>
+                <span className="text-xs text-slate-400">–</span>
                 <input
                   type="time"
                   value={evEnd}
@@ -267,16 +271,16 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                   }
                   className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
                 >
-                  <option value="work">Work</option>
-                  <option value="focus">Deep Focus</option>
-                  <option value="health">Health &amp; Fitness</option>
-                  <option value="personal">Personal</option>
+                  <option value="work">Lavoro</option>
+                  <option value="focus">Focus Profondo</option>
+                  <option value="health">Salute &amp; Sport</option>
+                  <option value="personal">Personale</option>
                 </select>
                 <input
                   type="text"
                   value={evLocation}
                   onChange={(e) => setEvLocation(e.target.value)}
-                  placeholder="Location"
+                  placeholder="Luogo"
                   className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
                 />
               </div>
@@ -285,30 +289,30 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               type="submit"
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 cursor-pointer"
             >
-              <Plus className="h-3.5 w-3.5" /> Add to Schedule
+              <Plus className="h-3.5 w-3.5" /> Aggiungi in Agenda
             </button>
           </form>
         </div>
 
-        {/* Right 5 cols: Day Events + Reminders */}
+        {/* Colonna destra: Eventi del giorno + Promemoria */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <CalendarIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
-                  {selectedDate}
+                  {formatShortDateIT(selectedDate)}
                 </h3>
               </div>
               <span className="text-xs text-slate-500 dark:text-slate-400">
-                {selectedDayEvents.length} events
+                {selectedDayEvents.length} eventi
               </span>
             </div>
 
             <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
               {selectedDayEvents.length === 0 ? (
                 <p className="py-6 text-xs text-slate-500 dark:text-slate-400">
-                  No events on this date.
+                  Nessun evento programmato per questa data.
                 </p>
               ) : (
                 selectedDayEvents.map((ev) => (
@@ -318,8 +322,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                         {ev.title}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums mt-0.5">
-                        {ev.startTime} – {ev.endTime} · {ev.category}
-                        {ev.googleEventId ? ' · Google Calendar' : ' · Local'}
+                        {ev.startTime} – {ev.endTime} · {EVENT_CATEGORY_LABELS[ev.category]}
+                        {ev.googleEventId ? ' · Google Calendar' : ' · Locale'}
                       </p>
                       {ev.location && (
                         <p className="text-xs text-slate-400 mt-0.5">{ev.location}</p>
@@ -331,7 +335,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                         <button
                           type="button"
                           onClick={() => onPushEventToGoogle(ev)}
-                          title="Push event to Google Calendar"
+                          title="Invia a Google Calendar"
                           className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                         >
                           <CloudUpload className="h-4 w-4" />
@@ -340,7 +344,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                       <button
                         type="button"
                         onClick={() => onDeleteEvent(ev)}
-                        aria-label={`Delete event ${ev.title}`}
+                        aria-label={`Elimina evento ${ev.title}`}
                         className="rounded-md p-1.5 text-slate-400 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 cursor-pointer"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -352,11 +356,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
             <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
               <Bell className="h-4 w-4 text-amber-500" />
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Daily Reminders
+                Promemoria Giornalieri
               </h3>
             </div>
 
@@ -365,7 +369,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                 type="text"
                 value={remTitle}
                 onChange={(e) => setRemTitle(e.target.value)}
-                placeholder="Reminder note..."
+                placeholder="Testo del promemoria..."
                 className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
               />
               <div className="flex items-center gap-2">
@@ -382,15 +386,15 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                   }
                   className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
                 >
-                  <option value="none">One-time</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
+                  <option value="none">Una volta</option>
+                  <option value="daily">Ogni giorno</option>
+                  <option value="weekly">Ogni settimana</option>
                 </select>
                 <button
                   type="submit"
                   className="rounded-lg bg-slate-900 dark:bg-slate-100 px-3 py-1.5 text-xs font-medium text-white dark:text-slate-900 hover:opacity-90 cursor-pointer"
                 >
-                  Add
+                  Aggiungi
                 </button>
               </div>
             </form>
@@ -402,7 +406,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                     <button
                       type="button"
                       onClick={() => onToggleReminder(rem.id)}
-                      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
+                      className={`mt-0.5 flex h-5 w-5 sm:h-4 sm:w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
                         rem.completed
                           ? 'border-emerald-600 bg-emerald-600 text-white'
                           : 'border-slate-300 dark:border-slate-600'
@@ -421,14 +425,14 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                         {rem.title}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                        {rem.date} · {rem.time} · {rem.repeat}
+                        {formatShortDateIT(rem.date)} · {rem.time} · {REPEAT_LABELS[rem.repeat]}
                       </p>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={() => onDeleteReminder(rem.id)}
-                    aria-label={`Delete reminder ${rem.title}`}
+                    aria-label={`Elimina promemoria ${rem.title}`}
                     className="rounded-md p-1 text-slate-400 hover:text-red-500 cursor-pointer"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

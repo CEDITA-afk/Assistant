@@ -142,8 +142,13 @@ export interface PomodoroSessionLog {
   mode: 'focus' | 'short_break' | 'long_break';
 }
 
+export type CurrencyCode = 'EUR' | 'USD';
+export type VoiceLanguage = 'it-IT' | 'en-US';
+
 export interface WorkspacePreferences {
   theme: ThemeMode;
+  currency: CurrencyCode;
+  voiceLang: VoiceLanguage;
   hapticsEnabled: boolean;
   soundEnabled: boolean;
   autoCalendarWorkoutSync: boolean;

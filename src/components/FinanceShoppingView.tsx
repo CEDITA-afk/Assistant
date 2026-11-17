@@ -4,25 +4,37 @@ import {
   Download,
   ExternalLink,
   FileSpreadsheet,
+  LayoutGrid,
   Plus,
   Receipt,
   RefreshCw,
   Save,
+  Search,
   ShoppingCart,
+  Table as TableIcon,
   Trash2,
 } from 'lucide-react';
 import type { DriveFileRecord } from '../services/googleWorkspace';
 import type {
+  CurrencyCode,
   ExpenseItem,
   MonthlyBudget,
   ShoppingItem,
 } from '../types/workspace';
+import {
+  EXPENSE_CATEGORY_LABELS,
+  formatMoney,
+  formatShortDateIT,
+  getCurrencySymbol,
+  SHOP_CATEGORY_LABELS,
+} from '../utils/formatters';
 import { getTodayISO } from '../utils/storage';
 
 interface FinanceShoppingViewProps {
   expenses: ExpenseItem[];
   budget: MonthlyBudget;
   shoppingList: ShoppingItem[];
+  currency: CurrencyCode;
   isGoogleConnected: boolean;
   linkedSpreadsheetId?: string;
   linkedSpreadsheetName?: string;
@@ -68,6 +80,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
   expenses,
   budget,
   shoppingList,
+  currency,
   isGoogleConnected,
   linkedSpreadsheetId,
   linkedSpreadsheetName,
@@ -93,23 +106,23 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
 }) => {
   const today = getTodayISO();
   const currentMonth = today.slice(0, 7);
+  const sym = getCurrencySymbol(currency);
 
-  // Expense form
   const [expDesc, setExpDesc] = useState('');
   const [expAmt, setExpAmt] = useState('');
   const [expCat, setExpCat] = useState<ExpenseItem['category']>('Groceries');
   const [expDate, setExpDate] = useState(today);
   const [filterCat, setFilterCat] = useState<string>('ALL');
 
-  // Shopping form
   const [shopName, setShopName] = useState('');
   const [shopQty, setShopQty] = useState('1');
   const [shopPrice, setShopPrice] = useState('');
   const [shopCat, setShopCat] = useState<ShoppingItem['category']>('Produce');
 
-  // Interactive Google Sheet editor state
   const [manualSheetId, setManualSheetId] = useState(linkedSpreadsheetId || '');
   const [editableRows, setEditableRows] = useState<string[][] | null>(null);
+  const [sheetFilter, setSheetFilter] = useState('');
+  const [sheetViewMode, setSheetViewMode] = useState<'table' | 'cards'>('table');
 
   const displayedGrid = editableRows ?? sheetGrid;
 
@@ -152,9 +165,20 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
   );
   const checkedCount = shoppingList.filter((s) => s.checked).length;
 
+  const filteredSheetIndices = useMemo(() => {
+    const q = sheetFilter.trim().toLowerCase();
+    return displayedGrid
+      .map((row, idx) => ({ row, idx }))
+      .filter(({ row, idx }) => {
+        if (idx === 0 || !q) return true;
+        return row.some((cell) => (cell || '').toLowerCase().includes(q));
+      })
+      .slice(0, 35);
+  }, [displayedGrid, sheetFilter]);
+
   const handleExpenseSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const amount = parseFloat(expAmt);
+    const amount = parseFloat(expAmt.replace(',', '.'));
     if (!expDesc.trim() || !Number.isFinite(amount) || amount <= 0) return;
     onAddExpense({
       description: expDesc.trim(),
@@ -169,7 +193,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
   const handleShopSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!shopName.trim()) return;
-    const price = parseFloat(shopPrice) || 0;
+    const price = parseFloat(shopPrice.replace(',', '.')) || 0;
     onAddShoppingItem({
       name: shopName.trim(),
       category: shopCat,
@@ -184,11 +208,11 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
 
   const exportExpensesCsv = () => {
     const rows = [
-      ['Date', 'Description', 'Category', 'Amount'],
+      ['Data', 'Descrizione', 'Categoria', `Importo (${currency})`],
       ...expenses.map((e) => [
         e.date,
         `"${e.description.replace(/"/g, '""')}"`,
-        e.category,
+        EXPENSE_CATEGORY_LABELS[e.category] || e.category,
         e.amount.toFixed(2),
       ]),
     ];
@@ -198,7 +222,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `cadence-expenses-${currentMonth}.csv`;
+    a.download = `cadence-spese-${currentMonth}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -207,6 +231,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
     100,
     Math.round((totalMonthSpent / Math.max(1, budget.totalLimit)) * 100)
   );
+  const totalRemaining = budget.totalLimit - totalMonthSpent;
 
   const handleCellChange = (rIdx: number, cIdx: number, val: string) => {
     const base = (editableRows ?? sheetGrid).map((row) => [...row]);
@@ -223,15 +248,18 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
     setEditableRows(base);
   };
 
+  const colCount = Math.max(4, ...displayedGrid.map((r) => r.length));
+  const sheetHeaders = displayedGrid[0] || [];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            Monthly Budget, Expenses &amp; Google Sheets
+            Budget Mensile, Spese &amp; Google Fogli
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Read and write live Google Sheets ranges, track monthly budget caps, and manage your shopping cart
+            Leggi e modifica fogli Google dal vivo, monitora le soglie di spesa e gestisci la lista della spesa
           </p>
         </div>
 
@@ -241,7 +269,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
             onClick={exportExpensesCsv}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap cursor-pointer"
           >
-            <Download className="h-3.5 w-3.5" /> Export CSV
+            <Download className="h-3.5 w-3.5" /> Esporta CSV
           </button>
 
           {!linkedSpreadsheetId ? (
@@ -252,17 +280,17 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 whitespace-nowrap cursor-pointer"
             >
               <FileSpreadsheet className="h-3.5 w-3.5" />
-              {isGoogleConnected ? 'Create Google Sheet Ledger' : 'Connect Google for Sheets'}
+              {isGoogleConnected ? 'Crea Foglio Spese Google' : 'Connetti Google per Fogli'}
             </button>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <a
                 href={`https://docs.google.com/spreadsheets/d/${linkedSpreadsheetId}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap"
               >
-                {linkedSpreadsheetName || 'Open Sheet'}
+                {linkedSpreadsheetName || 'Apri Foglio'}
                 <ExternalLink className="h-3 w-3" />
               </a>
               <button
@@ -272,33 +300,62 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap cursor-pointer"
               >
                 <FileSpreadsheet className="h-3.5 w-3.5" />
-                {syncingSheets ? 'Syncing...' : 'Sync Ledger to Sheets'}
+                {syncingSheets ? 'Sincronizzazione...' : 'Sincronizza su Fogli'}
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Live Google Sheets Reader & Writer */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-4">
+      {/* Lettore & Editor Google Fogli */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Google Sheets Live Reader &amp; Editor
+              Lettore &amp; Editor Google Fogli
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Select any Google Spreadsheet, inspect tabs, edit cell values directly, and write updates back to Google Sheets
+              Seleziona un foglio, filtra le righe, modifica celle o schede e salva direttamente su Google Fogli
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onRefreshSpreadsheets}
-            disabled={!isGoogleConnected || loadingSheetGrid}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap cursor-pointer"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loadingSheetGrid ? 'animate-spin' : ''}`} />
-            List My Spreadsheets
-          </button>
+          <div className="flex items-center gap-2">
+            {displayedGrid.length > 0 && (
+              <div className="flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-[#0B0F17] p-1">
+                <button
+                  type="button"
+                  onClick={() => setSheetViewMode('table')}
+                  className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer ${
+                    sheetViewMode === 'table'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  <TableIcon className="h-3 w-3" /> Tabella
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSheetViewMode('cards')}
+                  className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium cursor-pointer ${
+                    sheetViewMode === 'cards'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
+                  <LayoutGrid className="h-3 w-3" /> Schede
+                </button>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={onRefreshSpreadsheets}
+              disabled={!isGoogleConnected || loadingSheetGrid}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap cursor-pointer"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loadingSheetGrid ? 'animate-spin' : ''}`} />
+              Elenca i Miei Fogli
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -315,7 +372,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
               }}
               className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
             >
-              <option value="">Choose a Google Sheet...</option>
+              <option value="">Scegli un Google Foglio...</option>
               {spreadsheets.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -328,8 +385,8 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
             type="text"
             value={manualSheetId}
             onChange={(e) => setManualSheetId(e.target.value)}
-            placeholder="Or paste Spreadsheet ID..."
-            className="w-64 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-1.5 font-mono text-xs text-slate-900 dark:text-slate-100"
+            placeholder="Oppure incolla ID Foglio..."
+            className="flex-1 min-w-[180px] sm:max-w-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-1.5 font-mono text-xs text-slate-900 dark:text-slate-100"
           />
           <button
             type="button"
@@ -340,11 +397,24 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
             }}
             className="rounded-lg bg-slate-900 dark:bg-slate-100 px-3 py-1.5 text-xs font-medium text-white dark:text-slate-900 disabled:opacity-50 cursor-pointer"
           >
-            Read Sheet
+            Leggi Foglio
           </button>
 
+          {displayedGrid.length > 0 && (
+            <div className="relative">
+              <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={sheetFilter}
+                onChange={(e) => setSheetFilter(e.target.value)}
+                placeholder="Filtra righe..."
+                className="w-40 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] pl-8 pr-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+              />
+            </div>
+          )}
+
           {sheetTabs.length > 0 && linkedSpreadsheetId && (
-            <div className="flex items-center gap-1 ml-auto">
+            <div className="flex flex-wrap items-center gap-1 ml-auto">
               {sheetTabs.map((tab) => (
                 <button
                   key={tab}
@@ -368,15 +438,18 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
 
         {displayedGrid.length > 0 ? (
           <div className="space-y-3">
-            <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-lg">
-              <table className="w-full text-xs text-left">
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {displayedGrid.slice(0, 25).map((row, rIdx) => {
-                    const colCount = Math.max(4, ...displayedGrid.map((r) => r.length));
-                    return (
+            {sheetViewMode === 'table' ? (
+              <div className="overflow-x-auto max-h-96 border border-slate-200 dark:border-slate-800 rounded-lg">
+                <table className="w-full text-xs text-left">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredSheetIndices.map(({ row, idx: rIdx }) => (
                       <tr
                         key={rIdx}
-                        className={rIdx === 0 ? 'bg-slate-50 dark:bg-[#0B0F17] font-semibold' : ''}
+                        className={
+                          rIdx === 0
+                            ? 'sticky top-0 z-10 bg-slate-100 dark:bg-[#0B0F17] font-semibold'
+                            : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30'
+                        }
                       >
                         {Array.from({ length: colCount }, (_, cIdx) => (
                           <td
@@ -387,24 +460,54 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
                               type="text"
                               value={row[cIdx] || ''}
                               onChange={(e) => handleCellChange(rIdx, cIdx, e.target.value)}
-                              className="w-full min-w-[90px] bg-transparent px-2 py-1 text-xs text-slate-900 dark:text-slate-100 focus:bg-blue-500/10 focus:outline-none rounded"
+                              className="w-full min-w-[96px] bg-transparent px-2 py-1 text-xs text-slate-900 dark:text-slate-100 focus:bg-blue-500/10 focus:outline-none rounded"
                             />
                           </td>
                         ))}
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto">
+                {filteredSheetIndices
+                  .filter(({ idx }) => idx > 0)
+                  .map(({ row, idx: rIdx }) => (
+                    <div
+                      key={rIdx}
+                      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] p-3 space-y-2"
+                    >
+                      <div className="text-[11px] font-mono font-semibold text-slate-500 dark:text-slate-400">
+                        Riga {rIdx + 1}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {Array.from({ length: colCount }, (_, cIdx) => (
+                          <label key={cIdx} className="block text-[11px] text-slate-500 dark:text-slate-400">
+                            <span className="truncate block">
+                              {sheetHeaders[cIdx] || `Colonna ${cIdx + 1}`}
+                            </span>
+                            <input
+                              type="text"
+                              value={row[cIdx] || ''}
+                              onChange={(e) => handleCellChange(rIdx, cIdx, e.target.value)}
+                              className="mt-0.5 w-full rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-2 py-1 text-xs text-slate-900 dark:text-slate-100"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
 
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={handleAddGridRow}
                 className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
-                <Plus className="h-3.5 w-3.5" /> Add Row
+                <Plus className="h-3.5 w-3.5" /> Aggiungi Riga
               </button>
 
               {linkedSpreadsheetId && activeSheetTab && (
@@ -417,7 +520,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
                   disabled={!isGoogleConnected || syncingSheets}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                 >
-                  <Save className="h-3.5 w-3.5" /> Write Changes to Sheet
+                  <Save className="h-3.5 w-3.5" /> Salva Modifiche sul Foglio
                 </button>
               )}
             </div>
@@ -425,25 +528,36 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
         ) : (
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {isGoogleConnected
-              ? 'Click "List My Spreadsheets" or "Create Google Sheet Ledger" to read and edit live spreadsheet cells.'
-              : 'Connect Google to read and write live Google Sheets directly inside this table, or use the local ledger below.'}
+              ? 'Clicca "Elenca i Miei Fogli" o "Crea Foglio Spese Google" per leggere e modificare le celle in tempo reale.'
+              : 'Connetti Google per leggere e scrivere Google Fogli qui dentro, oppure usa il registro locale qui sotto.'}
           </p>
         )}
       </div>
 
-      {/* Budget Overview & Category Caps */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5">
+      {/* Panoramica Budget & Soglie Categoria */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Monthly Budget Tracker ({currentMonth})
+              Budget Mensile ({currentMonth})
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-              Spent ${totalMonthSpent.toFixed(2)} of ${budget.totalLimit.toFixed(2)} ({totalBudgetPct}%)
+              Speso {formatMoney(totalMonthSpent, currency)} su {formatMoney(budget.totalLimit, currency)} ({totalBudgetPct}%) ·{' '}
+              <span
+                className={
+                  totalRemaining < 0
+                    ? 'text-red-600 dark:text-red-400 font-semibold'
+                    : 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                }
+              >
+                {totalRemaining >= 0
+                  ? `Residui ${formatMoney(totalRemaining, currency)}`
+                  : `Sforato di ${formatMoney(Math.abs(totalRemaining), currency)}`}
+              </span>
             </p>
           </div>
           <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-            <span>Monthly Limit ($)</span>
+            <span>Limite Mensile ({sym})</span>
             <input
               type="number"
               min={100}
@@ -464,13 +578,19 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
           {EXPENSE_CATEGORIES.map((cat) => {
             const spent = categoryTotals[cat] || 0;
             const limit = budget.categoryLimits[cat] || 200;
-            const pct = Math.min(100, Math.round((spent / Math.max(1, limit)) * 100));
+            const rawPct = Math.round((spent / Math.max(1, limit)) * 100);
+            const pct = Math.min(100, rawPct);
+            const catLeft = limit - spent;
             const statusText =
-              pct >= 95 ? 'Over / At Cap' : pct >= 75 ? 'Near Cap' : 'Nominal';
+              rawPct >= 100
+                ? 'Sforato'
+                : rawPct >= 80
+                ? 'Vicino al Limite'
+                : 'Regolare';
             const barClass =
-              pct >= 95
+              rawPct >= 100
                 ? 'bg-red-600'
-                : pct >= 75
+                : rawPct >= 80
                 ? 'bg-amber-500'
                 : 'bg-emerald-600';
 
@@ -481,18 +601,18 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
               >
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    {cat}
+                    {EXPENSE_CATEGORY_LABELS[cat]}
                   </span>
                   <span
                     className={`font-medium ${
-                      pct >= 95
+                      rawPct >= 100
                         ? 'text-red-600 dark:text-red-400'
-                        : pct >= 75
+                        : rawPct >= 80
                         ? 'text-amber-600 dark:text-amber-400'
                         : 'text-emerald-600 dark:text-emerald-400'
                     }`}
                   >
-                    {statusText}
+                    {statusText} ({rawPct}%)
                   </span>
                 </div>
 
@@ -505,10 +625,13 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
 
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span className="font-mono tabular-nums">
-                    ${spent.toFixed(2)} spent
+                    {formatMoney(spent, currency)} ·{' '}
+                    {catLeft >= 0
+                      ? `-${formatMoney(catLeft, currency)} disp.`
+                      : `+${formatMoney(Math.abs(catLeft), currency)} extra`}
                   </span>
                   <label className="inline-flex items-center gap-1">
-                    <span>Cap $</span>
+                    <span>Soglia {sym}</span>
                     <input
                       type="number"
                       min={20}
@@ -523,7 +646,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
                           },
                         })
                       }
-                      aria-label={`${cat} monthly cap`}
+                      aria-label={`Soglia mensile ${EXPENSE_CATEGORY_LABELS[cat]}`}
                       className="w-16 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-slate-900 dark:text-slate-100"
                     />
                   </label>
@@ -534,14 +657,14 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
         </div>
       </div>
 
-      {/* 2-Column Ledger & Shopping List */}
+      {/* Registro Spese & Lista Spesa */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-4">
+        <div className="lg:col-span-7 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2">
               <Receipt className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Expense Ledger
+                Registro Spese
               </h3>
             </div>
             <select
@@ -549,10 +672,10 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
               onChange={(e) => setFilterCat(e.target.value)}
               className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
             >
-              <option value="ALL">All Categories</option>
+              <option value="ALL">Tutte le Categorie</option>
               {EXPENSE_CATEGORIES.map((c) => (
                 <option key={c} value={c}>
-                  {c}
+                  {EXPENSE_CATEGORY_LABELS[c]}
                 </option>
               ))}
             </select>
@@ -563,7 +686,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
               type="text"
               value={expDesc}
               onChange={(e) => setExpDesc(e.target.value)}
-              placeholder="Expense description..."
+              placeholder="Descrizione spesa..."
               className="sm:col-span-5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
             />
             <input
@@ -572,7 +695,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
               min="0.01"
               value={expAmt}
               onChange={(e) => setExpAmt(e.target.value)}
-              placeholder="$ Amount"
+              placeholder={`${sym} Importo`}
               className="sm:col-span-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 font-mono text-xs text-slate-900 dark:text-slate-100"
             />
             <select
@@ -582,7 +705,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
             >
               {EXPENSE_CATEGORIES.map((c) => (
                 <option key={c} value={c}>
-                  {c}
+                  {EXPENSE_CATEGORY_LABELS[c]}
                 </option>
               ))}
             </select>
@@ -594,7 +717,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
             />
             <button
               type="submit"
-              aria-label="Add expense"
+              aria-label="Aggiungi spesa"
               className="sm:col-span-1 inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 cursor-pointer"
             >
               <Plus className="h-4 w-4" />
@@ -605,10 +728,10 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
-                  <th className="py-2 font-medium">Date</th>
-                  <th className="py-2 font-medium">Description</th>
-                  <th className="py-2 font-medium">Category</th>
-                  <th className="py-2 font-medium text-right">Amount</th>
+                  <th className="py-2 font-medium">Data</th>
+                  <th className="py-2 font-medium">Descrizione</th>
+                  <th className="py-2 font-medium">Categoria</th>
+                  <th className="py-2 font-medium text-right">Importo</th>
                   <th className="py-2 w-8" />
                 </tr>
               </thead>
@@ -616,22 +739,22 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
                 {filteredExpenses.map((exp) => (
                   <tr key={exp.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                     <td className="py-2.5 font-mono tabular-nums text-slate-500 dark:text-slate-400 whitespace-nowrap pr-3">
-                      {exp.date}
+                      {formatShortDateIT(exp.date)}
                     </td>
                     <td className="py-2.5 text-slate-900 dark:text-slate-100 pr-3">
                       {exp.description}
                     </td>
                     <td className="py-2.5 text-slate-500 dark:text-slate-400 pr-3">
-                      {exp.category}
+                      {EXPENSE_CATEGORY_LABELS[exp.category]}
                     </td>
                     <td className="py-2.5 text-right font-mono tabular-nums font-medium text-slate-900 dark:text-slate-100">
-                      ${exp.amount.toFixed(2)}
+                      {formatMoney(exp.amount, currency)}
                     </td>
                     <td className="py-2.5 text-right">
                       <button
                         type="button"
                         onClick={() => onDeleteExpense(exp.id)}
-                        aria-label={`Delete expense ${exp.description}`}
+                        aria-label={`Elimina spesa ${exp.description}`}
                         className="p-1 text-slate-400 hover:text-red-500 cursor-pointer"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -644,16 +767,16 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
           </div>
         </div>
 
-        <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+        <div className="lg:col-span-5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2">
               <ShoppingCart className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Shopping List
+                  Lista della Spesa
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                  {shoppingList.length} items · Est. total ${shoppingTotalEst.toFixed(2)}
+                  {shoppingList.length - checkedCount} da prendere · Stima {formatMoney(shoppingTotalEst, currency)}
                 </p>
               </div>
             </div>
@@ -663,7 +786,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
                 onClick={onConvertCheckedShoppingToExpense}
                 className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 whitespace-nowrap cursor-pointer"
               >
-                Log {checkedCount} Checked as Expense
+                Registra {checkedCount} come Spesa
               </button>
             )}
           </div>
@@ -673,14 +796,14 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
               type="text"
               value={shopName}
               onChange={(e) => setShopName(e.target.value)}
-              placeholder="Item name..."
+              placeholder="Articolo..."
               className="col-span-5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
             />
             <input
               type="text"
               value={shopQty}
               onChange={(e) => setShopQty(e.target.value)}
-              placeholder="Qty"
+              placeholder="Qtà"
               className="col-span-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2 py-2 text-xs text-slate-900 dark:text-slate-100"
             />
             <input
@@ -689,7 +812,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
               min="0"
               value={shopPrice}
               onChange={(e) => setShopPrice(e.target.value)}
-              placeholder="$ Est"
+              placeholder={sym}
               className="col-span-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2 py-2 font-mono text-xs text-slate-900 dark:text-slate-100"
             />
             <select
@@ -699,13 +822,13 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
             >
               {SHOP_CATEGORIES.map((c) => (
                 <option key={c} value={c}>
-                  {c}
+                  {SHOP_CATEGORY_LABELS[c]}
                 </option>
               ))}
             </select>
             <button
               type="submit"
-              aria-label="Add shopping list item"
+              aria-label="Aggiungi articolo"
               className="col-span-1 inline-flex items-center justify-center rounded-lg bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 hover:opacity-90 cursor-pointer"
             >
               <Plus className="h-4 w-4" />
@@ -719,7 +842,7 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
                   <button
                     type="button"
                     onClick={() => onToggleShoppingItem(item.id)}
-                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
+                    className={`mt-0.5 flex h-5 w-5 sm:h-4 sm:w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
                       item.checked
                         ? 'border-emerald-600 bg-emerald-600 text-white'
                         : 'border-slate-300 dark:border-slate-600'
@@ -738,19 +861,19 @@ export const FinanceShoppingView: React.FC<FinanceShoppingViewProps> = ({
                       {item.name}
                     </p>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {item.category} · {item.quantity}
+                      {SHOP_CATEGORY_LABELS[item.category]} · {item.quantity}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="font-mono text-xs tabular-nums text-slate-600 dark:text-slate-300">
-                    ${item.estimatedPrice.toFixed(2)}
+                    {formatMoney(item.estimatedPrice, currency)}
                   </span>
                   <button
                     type="button"
                     onClick={() => onDeleteShoppingItem(item.id)}
-                    aria-label={`Delete shopping item ${item.name}`}
+                    aria-label={`Elimina articolo ${item.name}`}
                     className="p-1 text-slate-400 hover:text-red-500 cursor-pointer"
                   >
                     <Trash2 className="h-3.5 w-3.5" />

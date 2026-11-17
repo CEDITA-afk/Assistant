@@ -15,6 +15,12 @@ import type {
   Project,
   TaskItem,
 } from '../../types/workspace';
+import {
+  formatShortDateIT,
+  KANBAN_LABELS,
+  PRIORITY_LABELS,
+} from '../../utils/formatters';
+import { getTodayISO } from '../../utils/storage';
 
 interface TaskCardProps {
   task: TaskItem;
@@ -46,6 +52,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   onMoveKanban,
 }) => {
   const isDone = task.kanbanStatus === 'done';
+  const isOverdue = !isDone && task.dueDate < getTodayISO();
 
   return (
     <div
@@ -55,12 +62,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 min-w-0">
-          <GripVertical className="h-4 w-4 text-slate-400 shrink-0 mt-0.5" />
+          <GripVertical className="hidden sm:block h-4 w-4 text-slate-400 shrink-0 mt-0.5" />
           <button
             type="button"
             onClick={onToggleDone}
-            aria-label={`Toggle completion for ${task.title}`}
-            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
+            aria-label={`Segna completato ${task.title}`}
+            className={`mt-0.5 flex h-5 w-5 sm:h-4 sm:w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
               isDone
                 ? 'border-emerald-600 bg-emerald-600 text-white'
                 : 'border-slate-300 dark:border-slate-600'
@@ -89,9 +96,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                     : ''
                 }
               >
-                {task.priority}
+                {PRIORITY_LABELS[task.priority]}
               </span>{' '}
-              · Due {task.dueDate} · {task.progress}%
+              ·{' '}
+              <span className={isOverdue ? 'text-red-600 dark:text-red-400 font-semibold' : ''}>
+                {isOverdue ? 'Scaduto ' : 'Scad. '}
+                {formatShortDateIT(task.dueDate)}
+              </span>{' '}
+              · {task.progress}%
             </p>
             {task.notes && (
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2">
@@ -105,16 +117,16 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           <button
             type="button"
             onClick={onEdit}
-            title="Edit task"
-            className="rounded p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+            title="Modifica task"
+            className="rounded p-1.5 sm:p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
           >
             <Pencil className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
             onClick={onOpenAttach}
-            title="Attach Drive file"
-            className="rounded p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+            title="Allega file Drive"
+            className="rounded p-1.5 sm:p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
           >
             <Paperclip className="h-3.5 w-3.5" />
           </button>
@@ -122,8 +134,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
             <button
               type="button"
               onClick={onPushToGoogle}
-              title="Sync to Google Tasks"
-              className="rounded p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+              title="Invia a Google Tasks"
+              className="rounded p-1.5 sm:p-1 text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
             >
               <CloudUpload className="h-3.5 w-3.5" />
             </button>
@@ -131,8 +143,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
           <button
             type="button"
             onClick={onDelete}
-            title="Delete task"
-            className="rounded p-1 text-slate-400 hover:bg-red-500/10 hover:text-red-500 cursor-pointer"
+            title="Elimina task"
+            className="rounded p-1.5 sm:p-1 text-slate-400 hover:bg-red-500/10 hover:text-red-500 cursor-pointer"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -140,7 +152,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       </div>
 
       {task.attachments.length > 0 && (
-        <div className="mt-2 pl-6 space-y-1">
+        <div className="mt-2 sm:pl-6 space-y-1">
           {task.attachments.map((att) => (
             <div
               key={att.id}
@@ -162,14 +174,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                   <span className="truncate">{att.name}</span>
                 )}
                 {att.autoMatched && (
-                  <span className="text-slate-400">· auto-linked</span>
+                  <span className="text-slate-400">· collegato auto</span>
                 )}
               </span>
               <button
                 type="button"
                 onClick={() => onRemoveAttachment(att.id)}
                 className="text-slate-400 hover:text-red-500 cursor-pointer"
-                aria-label={`Remove attachment ${att.name}`}
+                aria-label={`Rimuovi allegato ${att.name}`}
               >
                 ×
               </button>
@@ -179,31 +191,32 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       )}
 
       {(onMoveQuadrant || onMoveKanban) && (
-        <div className="mt-2 pl-6 flex items-center gap-2">
+        <div className="mt-2.5 sm:pl-6 flex flex-wrap items-center gap-2">
           {onMoveQuadrant && (
             <select
               value={task.quadrant}
               onChange={(e) => onMoveQuadrant(e.target.value as EisenhowerQuadrant)}
-              aria-label="Move quadrant"
-              className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-300"
+              aria-label="Sposta quadrante"
+              className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-2 py-1 text-[11px] text-slate-600 dark:text-slate-300"
             >
-              <option value="Q1">Move to Q1</option>
-              <option value="Q2">Move to Q2</option>
-              <option value="Q3">Move to Q3</option>
-              <option value="Q4">Move to Q4</option>
+              <option value="Q1">Sposta in Q1</option>
+              <option value="Q2">Sposta in Q2</option>
+              <option value="Q3">Sposta in Q3</option>
+              <option value="Q4">Sposta in Q4</option>
             </select>
           )}
           {onMoveKanban && (
             <select
               value={task.kanbanStatus}
               onChange={(e) => onMoveKanban(e.target.value as KanbanColumn)}
-              aria-label="Move kanban column"
-              className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-300"
+              aria-label="Sposta colonna Kanban"
+              className="rounded border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-2 py-1 text-[11px] text-slate-600 dark:text-slate-300"
             >
-              <option value="backlog">Backlog</option>
-              <option value="in_progress">In Progress</option>
-              <option value="review">Review</option>
-              <option value="done">Done</option>
+              {(Object.keys(KANBAN_LABELS) as KanbanColumn[]).map((c) => (
+                <option key={c} value={c}>
+                  {KANBAN_LABELS[c]}
+                </option>
+              ))}
             </select>
           )}
         </div>

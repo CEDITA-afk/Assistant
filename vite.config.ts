@@ -25,10 +25,11 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: base,
-          name: 'Cadence Personal Assistant',
+          name: 'Cadence Assistente Personale',
           short_name: 'Cadence',
+          lang: 'it',
           description:
-            'Voice-enabled personal assistant for calendar, tasks, finances, fitness, and Google Workspace sync.',
+            'Assistente personale vocale per calendario, progetti, budget, note, fitness e sincronizzazione Google Workspace.',
           theme_color: '#0B0F17',
           background_color: '#0B0F17',
           display: 'standalone',

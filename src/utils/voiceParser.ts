@@ -75,29 +75,45 @@ function parseDateFromText(text: string): { date: string; cleaned: string } {
   const today = getTodayISO();
   const lower = text.toLowerCase();
 
-  if (/\btomorrow\b/.test(lower)) {
+  if (/\b(dopodomani)\b/.test(lower)) {
     return {
-      date: addDaysISO(today, 1),
-      cleaned: text.replace(/\btomorrow\b/i, '').trim(),
+      date: addDaysISO(today, 2),
+      cleaned: text.replace(/\bdopodomani\b/i, '').trim(),
     };
   }
-  if (/\btoday\b/.test(lower)) {
+  if (/\b(tomorrow|domani)\b/.test(lower)) {
+    return {
+      date: addDaysISO(today, 1),
+      cleaned: text.replace(/\b(tomorrow|domani)\b/i, '').trim(),
+    };
+  }
+  if (/\b(today|oggi)\b/.test(lower)) {
     return {
       date: today,
-      cleaned: text.replace(/\btoday\b/i, '').trim(),
+      cleaned: text.replace(/\b(today|oggi)\b/i, '').trim(),
     };
   }
 
-  const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  for (let i = 0; i < weekdays.length; i++) {
-    const regex = new RegExp(`\\b(?:next\\s+|on\\s+)?${weekdays[i]}\\b`, 'i');
+  const weekdayGroups: string[][] = [
+    ['sunday', 'domenica'],
+    ['monday', 'lunedì', 'lunedi'],
+    ['tuesday', 'martedì', 'martedi'],
+    ['wednesday', 'mercoledì', 'mercoledi'],
+    ['thursday', 'giovedì', 'giovedi'],
+    ['friday', 'venerdì', 'venerdi'],
+    ['saturday', 'sabato'],
+  ];
+
+  for (let i = 0; i < weekdayGroups.length; i++) {
+    const names = weekdayGroups[i].join('|');
+    const regex = new RegExp(`(?:^|\\s)(?:next\\s+|on\\s+|il\\s+|di\\s+|prossimo\\s+)?(${names})(?:\\s|$)`, 'i');
     if (regex.test(text)) {
       const now = new Date();
       let diff = (i - now.getDay() + 7) % 7;
       if (diff === 0) diff = 7;
       return {
         date: addDaysISO(today, diff),
-        cleaned: text.replace(regex, '').trim(),
+        cleaned: text.replace(regex, ' ').replace(/\s{2,}/g, ' ').trim(),
       };
     }
   }
@@ -106,11 +122,14 @@ function parseDateFromText(text: string): { date: string; cleaned: string } {
 }
 
 function parseTimeFromText(text: string): { time: string | null; cleaned: string } {
-  const match = text.match(/\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
+  const match = text.match(
+    /\b(?:(?:at|alle|ore)\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\b/i
+  );
   if (!match) return { time: null, cleaned: text };
 
-  // Avoid matching plain dollar/step numbers unless "at" or am/pm or colon is present
-  const hasExplicitIndicator = Boolean(match[2] || match[3] || /\bat\b/i.test(match[0]));
+  const hasExplicitIndicator = Boolean(
+    match[2] || match[3] || /\b(?:at|alle|ore)\b/i.test(match[0])
+  );
   if (!hasExplicitIndicator) return { time: null, cleaned: text };
 
   let hours = parseInt(match[1], 10);
@@ -137,34 +156,47 @@ export function parseVoiceCommand(rawInput: string): ParsedVoiceIntent {
   if (!raw) return { type: 'unknown', raw };
   const lower = raw.toLowerCase();
 
-  // 1. Water intake
-  const waterMatch = lower.match(/(\d+(?:\.\d+)?)\s*(ml|l|liter|liters|glass|glasses|cup|cups)\b.*water|water.*(\d+(?:\.\d+)?)\s*(ml|l|glass|glasses|cup|cups)/i);
-  if (waterMatch || /\b(drink|drank|log|add)\s+water\b/i.test(lower)) {
-    const numMatch = lower.match(/(\d+(?:\.\d+)?)\s*(ml|l|liter|liters|glass|glasses|cup|cups)?/i);
+  // 1. Acqua / Water intake
+  const waterMatch = lower.match(
+    /(\d+(?:[.,]\d+)?)\s*(ml|l|litro|litri|liter|liters|bicchiere|bicchieri|glass|glasses|cup|cups)\b.*(?:acqua|water)|(?:acqua|water).*(\d+(?:[.,]\d+)?)\s*(ml|l|litro|litri|bicchiere|bicchieri|glass|glasses|cup|cups)/i
+  );
+  if (
+    waterMatch ||
+    /\b(bevi|bevuto|registra|aggiungi|drink|drank|log|add)\b.*\b(acqua|d'acqua|water)\b/i.test(
+      lower
+    )
+  ) {
+    const numMatch = lower.match(
+      /(\d+(?:[.,]\d+)?)\s*(ml|l|litro|litri|liter|liters|bicchiere|bicchieri|glass|glasses|cup|cups)?/i
+    );
     let ml = 250;
     if (numMatch) {
-      const val = parseFloat(numMatch[1]);
+      const val = parseFloat(numMatch[1].replace(',', '.'));
       const unit = (numMatch[2] || '').toLowerCase();
-      if (unit.startsWith('l')) ml = Math.round(val * 1000);
-      else if (unit.startsWith('glass') || unit.startsWith('cup')) ml = Math.round(val * 250);
+      if (unit === 'l' || unit.startsWith('lit')) ml = Math.round(val * 1000);
+      else if (unit.startsWith('bicchier') || unit.startsWith('glass') || unit.startsWith('cup'))
+        ml = Math.round(val * 250);
       else if (val > 0 && val <= 10) ml = Math.round(val * 250);
       else if (val > 10) ml = Math.round(val);
     }
     return { type: 'water', ml };
   }
 
-  // 2. Steps
-  if (/\bsteps?\b/i.test(lower)) {
-    const stepNum = lower.match(/(\d[\d,]*)/);
-    const steps = stepNum ? parseInt(stepNum[1].replace(/,/g, ''), 10) : 1000;
+  // 2. Passi / Steps
+  if (/\b(passi|passo|steps?)\b/i.test(lower)) {
+    const stepNum = lower.match(/(\d[\d.,]*)/);
+    const cleanedNum = stepNum ? stepNum[1].replace(/[.,](?=\d{3}\b)/g, '') : '1000';
+    const steps = parseInt(cleanedNum, 10);
     return { type: 'steps', steps: Number.isFinite(steps) && steps > 0 ? steps : 1000 };
   }
 
-  // 3. Pomodoro
-  if (/\b(pomodoro|focus session|deep work|timer|break)\b/i.test(lower)) {
-    if (/\blong break\b/i.test(lower)) return { type: 'pomodoro', mode: 'long_break' };
-    if (/\b(short break|take a break|break)\b/i.test(lower)) return { type: 'pomodoro', mode: 'short_break' };
-    const minMatch = lower.match(/(\d+)\s*(?:min|minute|minutes)/);
+  // 3. Pomodoro / Focus Timer
+  if (/\b(pomodoro|focus|deep work|timer|pausa|break)\b/i.test(lower)) {
+    if (/\b(long break|pausa lunga)\b/i.test(lower))
+      return { type: 'pomodoro', mode: 'long_break' };
+    if (/\b(short break|take a break|pausa breve|fai una pausa|pausa)\b/i.test(lower))
+      return { type: 'pomodoro', mode: 'short_break' };
+    const minMatch = lower.match(/(\d+)\s*(?:min|minuti|minuto|minute|minutes)/);
     return {
       type: 'pomodoro',
       mode: 'focus',
@@ -172,14 +204,27 @@ export function parseVoiceCommand(rawInput: string): ParsedVoiceIntent {
     };
   }
 
-  // 4. Shopping list
-  if (/\b(shopping|grocery|groceries|buy)\b/i.test(lower) && !/\bspent\b|\bexpense\b|\$\d+/.test(lower)) {
+  // 4. Lista della Spesa / Shopping list
+  if (
+    /\b(spesa|lista della spesa|shopping|grocery|groceries|compra|comprare|buy)\b/i.test(
+      lower
+    ) &&
+    !/\bspeso\b|\bspesa di\b|\bspent\b|\bexpense\b|[€$]\s*\d|\d+\s*(?:euro|€|\$)/i.test(
+      lower
+    )
+  ) {
     const stripped = raw
-      .replace(/^(add|put|buy|need to buy)\s+/i, '')
-      .replace(/\s+(to|on)\s+(my\s+)?(shopping|grocery)\s*(list)?$/i, '')
+      .replace(
+        /^(aggiungi|metti|inserisci|compra|comprare|devo comprare|add|put|buy|need to buy)\s+/i,
+        ''
+      )
+      .replace(
+        /\s+(?:alla|nella|in|to|on)\s+(?:mia\s+|my\s+)?(?:lista\s+(?:della\s+)?)?(?:spesa|shopping|grocery)\s*(?:list)?$/i,
+        ''
+      )
       .trim();
     const items = stripped
-      .split(/,|\band\b/i)
+      .split(/,|\be\b|\band\b/i)
       .map((s) => s.trim())
       .filter(Boolean);
     if (items.length > 0) {
@@ -187,27 +232,62 @@ export function parseVoiceCommand(rawInput: string): ParsedVoiceIntent {
     }
   }
 
-  // 5. Expenses
-  if (/\b(expense|spent|paid|cost|budget)\b|\$\d+/i.test(lower)) {
-    const amtMatch = raw.match(/\$?\s*(\d+(?:\.\d{1,2})?)\s*(?:dollars|usd|eur|€)?/i);
+  // 5. Spese / Expenses
+  if (
+    /\b(spesa|speso|pagato|costo|expense|spent|paid|cost|budget)\b|[€$]\s*\d|\d+(?:[.,]\d{1,2})?\s*(?:euro|€|\$|usd)/i.test(
+      lower
+    )
+  ) {
+    const amtMatch = raw.match(
+      /[€$]?\s*(\d+(?:[.,]\d{1,2})?)\s*(?:euro|eur|€|dollars|usd|\$)?/i
+    );
     if (amtMatch) {
-      const amount = parseFloat(amtMatch[1]);
+      const amount = parseFloat(amtMatch[1].replace(',', '.'));
       let category: ExpenseItem['category'] = 'Workspace';
-      if (/grocery|groceries|market|milk|bread|fruit/i.test(lower)) category = 'Groceries';
-      else if (/coffee|lunch|dinner|breakfast|cafe|restaurant|food/i.test(lower)) category = 'Dining';
-      else if (/uber|lyft|train|bus|metro|gas|fuel|parking|transit/i.test(lower)) category = 'Transit';
-      else if (/electric|water bill|internet|fiber|utility|utilities|rent/i.test(lower)) category = 'Utilities';
-      else if (/gym|yoga|pharmacy|health|supplement/i.test(lower)) category = 'Wellness';
+      if (
+        /supermercato|alimentari|spesa|latte|pane|frutta|grocery|groceries|market|milk|bread/i.test(
+          lower
+        )
+      )
+        category = 'Groceries';
+      else if (
+        /caffè|caffe|pranzo|cena|colazione|bar|ristorante|pizza|coffee|lunch|dinner|breakfast|cafe|restaurant|food/i.test(
+          lower
+        )
+      )
+        category = 'Dining';
+      else if (
+        /uber|treno|bus|metro|benzina|gasolio|parcheggio|pedaggio|train|gas|fuel|parking|transit/i.test(
+          lower
+        )
+      )
+        category = 'Transit';
+      else if (
+        /luce|acqua|bolletta|internet|fibra|affitto|condominio|electric|water bill|fiber|utility|utilities|rent/i.test(
+          lower
+        )
+      )
+        category = 'Utilities';
+      else if (
+        /palestra|farmacia|medico|salute|integratori|yoga|gym|pharmacy|health|supplement/i.test(
+          lower
+        )
+      )
+        category = 'Wellness';
 
       const desc = raw
-        .replace(/^(log|add|record|i)?\s*(an?\s+)?(expense|spent|paid)\s*/i, '')
+        .replace(
+          /^(registra|aggiungi|segna|ho|log|add|record|i)?\s*(?:una?\s+)?(?:spesa|speso|pagato|expense|spent|paid)\s*(?:di\s+)?/i,
+          ''
+        )
         .replace(amtMatch[0], '')
-        .replace(/^\s*(for|on)\s+/i, '')
+        .replace(/^\s*(?:per|di|for|on)\s+/i, '')
+        .replace(/\s+(?:per|for)\s*$/i, '')
         .trim();
 
       return {
         type: 'expense',
-        description: desc || `${category} Expense`,
+        description: desc || 'Spesa Rapida',
         amount,
         category,
         date: getTodayISO(),
@@ -215,37 +295,63 @@ export function parseVoiceCommand(rawInput: string): ParsedVoiceIntent {
     }
   }
 
-  // 6. Reminders
-  if (/^(remind me|set a? ?reminder|reminder)\b/i.test(lower)) {
+  // 6. Promemoria / Reminders
+  if (
+    /^(ricordami|promemoria|imposta promemoria|remind me|set a? ?reminder|reminder)\b/i.test(
+      lower
+    )
+  ) {
     const withoutPrefix = raw
-      .replace(/^(remind me to|remind me|set a? ?reminder to|set a? ?reminder|reminder:?)\s*/i, '')
+      .replace(
+        /^(ricordami\s+(?:di\s+)?|imposta\s+(?:un\s+)?promemoria\s*(?:per\s+|di\s+)?|promemoria:?\s*|remind me to\s+|remind me\s+|set a? ?reminder to\s+|set a? ?reminder\s+|reminder:?\s*)/i,
+        ''
+      )
       .trim();
     const { date, cleaned: afterDate } = parseDateFromText(withoutPrefix);
     const { time, cleaned: afterTime } = parseTimeFromText(afterDate);
     return {
       type: 'reminder',
-      title: afterTime || withoutPrefix || 'Daily Reminder',
+      title: afterTime || withoutPrefix || 'Promemoria',
       date,
       time: time || '17:00',
     };
   }
 
-  // 7. Calendar events
-  if (/^(schedule|book|calendar|add meeting|add event|meeting|event)\b/i.test(lower)) {
+  // 7. Eventi Calendario / Calendar events
+  if (
+    /^(segna|pianifica|programma|fissa|prenota|calendario|aggiungi evento|evento|riunione|appuntamento|schedule|book|calendar|add meeting|add event|meeting|event)\b/i.test(
+      lower
+    )
+  ) {
     const withoutPrefix = raw
-      .replace(/^(schedule|book|create|add)\s+(a\s+|an\s+)?(calendar\s+)?(event|meeting|appointment)?\s*(for|called|titled)?\s*/i, '')
+      .replace(
+        /^(segna|pianifica|programma|fissa|prenota|crea|aggiungi|schedule|book|create|add)\s+(?:un\s+|una\s+|a\s+|an\s+)?(?:evento|appuntamento|riunione|calendar\s+)?(?:in\s+calendario\s+)?(?:event|meeting|appointment)?\s*(?:per|con|di|for|called|titled)?\s*/i,
+        ''
+      )
       .trim();
     const { date, cleaned: afterDate } = parseDateFromText(withoutPrefix);
     const { time, cleaned: afterTime } = parseTimeFromText(afterDate);
     const startTime = time || '10:00';
     let category: CalendarEvent['category'] = 'work';
-    if (/gym|run|workout|dentist|doctor|yoga|health/i.test(lower)) category = 'health';
-    else if (/focus|deep work|study/i.test(lower)) category = 'focus';
-    else if (/dinner|family|friend|personal|birthday/i.test(lower)) category = 'personal';
+    if (
+      /palestra|corsa|allenamento|dentista|medico|dottore|yoga|salute|gym|run|workout|dentist|doctor|health/i.test(
+        lower
+      )
+    )
+      category = 'health';
+    else if (/focus|deep work|studio|study/i.test(lower)) category = 'focus';
+    else if (
+      /cena|pranzo|famiglia|amici|personale|compleanno|dinner|family|friend|personal|birthday/i.test(
+        lower
+      )
+    )
+      category = 'personal';
 
     return {
       type: 'event',
-      title: afterTime.replace(/\b(for|to|with)\s*$/i, '').trim() || 'Scheduled Event',
+      title:
+        afterTime.replace(/\b(per|con|a|for|to|with)\s*$/i, '').trim() ||
+        'Evento in Agenda',
       date,
       startTime,
       endTime: addOneHour(startTime),
@@ -253,23 +359,40 @@ export function parseVoiceCommand(rawInput: string): ParsedVoiceIntent {
     };
   }
 
-  // 8. Notes
-  if (/^(note|take a note|jot down|keep note)\b/i.test(lower)) {
-    const body = raw.replace(/^(note|take a note|jot down|keep note):?\s*/i, '').trim();
+  // 8. Note / Keep notes
+  if (
+    /^(nota|prendi nota|appunto|scrivi nota|note|take a note|jot down|keep note)\b/i.test(
+      lower
+    )
+  ) {
+    const body = raw
+      .replace(
+        /^(prendi nota|scrivi una? nota|nota|appunto|take a note|jot down|keep note|note):?\s*(?:di\s+)?/i,
+        ''
+      )
+      .trim();
     const words = body.split(/\s+/);
     const title = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
     return {
       type: 'note',
-      title: title || 'Quick Voice Note',
+      title: title || 'Nota Vocale',
       body: body || raw,
     };
   }
 
-  // 9. Tasks (explicit or fallback if it contains task/urgent/priority/finish/complete)
-  if (/^(add|create|new)?\s*(urgent|important|high priority|low priority)?\s*task\b/i.test(lower)) {
+  // 9. Task / Attività
+  if (
+    /^(?:aggiungi|crea|nuovo|nuova|add|create|new)?\s*(?:un\s+|una\s+)?(?:urgente|importante|priorità alta|alta priorità|bassa priorità|urgent|important|high priority|low priority)?\s*(?:task|attività|attivita)\b/i.test(
+      lower
+    )
+  ) {
     const { date, cleaned: afterDate } = parseDateFromText(raw);
-    const isUrgent = /\b(urgent|asap|critical|now|today)\b/i.test(lower);
-    const isImportant = /\b(important|critical|high|key|budget|client|project)\b/i.test(lower);
+    const isUrgent = /\b(urgente|urgent|subito|asap|critico|critica|critical|adesso|now|oggi|today)\b/i.test(
+      lower
+    );
+    const isImportant = /\b(importante|important|critico|critica|critical|alta|high|chiave|budget|cliente|client|progetto|project)\b/i.test(
+      lower
+    );
     let quadrant: EisenhowerQuadrant = 'Q2';
     let priority: TaskPriority = 'medium';
     if (isUrgent && isImportant) {
@@ -281,26 +404,30 @@ export function parseVoiceCommand(rawInput: string): ParsedVoiceIntent {
     } else if (isUrgent && !isImportant) {
       quadrant = 'Q3';
       priority = 'medium';
-    } else if (/\blow priority\b/i.test(lower)) {
+    } else if (/\b(bassa priorità|low priority|poco importante)\b/i.test(lower)) {
       quadrant = 'Q4';
       priority = 'low';
     }
 
     const title = afterDate
-      .replace(/^(add|create|new)?\s*(urgent|important|high priority|low priority)?\s*task:?\s*/i, '')
-      .replace(/\bby\s*$/i, '')
+      .replace(
+        /^(?:aggiungi|crea|nuovo|nuova|add|create|new)?\s*(?:un\s+|una\s+)?(?:task|attività|attivita)\s*(?:urgente|importante|critico|critica|a\s+priorità\s+alta|a\s+bassa\s+priorità|urgent|important)?\s*:?\s*/i,
+        ''
+      )
+      .replace(/^(?:urgente|importante|high priority|low priority)\s+/i, '')
+      .replace(/\b(?:entro|by)\s*$/i, '')
       .trim();
 
     return {
       type: 'task',
-      title: title || 'New Workspace Task',
+      title: title || 'Nuovo Task',
       quadrant,
       priority,
       dueDate: date,
     };
   }
 
-  // Smart fallback: if there's an explicit time, treat as reminder; otherwise as task if short actionable phrase
+  // Fallback intelligente: se c'è un orario esplicito, crea un promemoria
   const { date, cleaned: afterDate } = parseDateFromText(raw);
   const { time, cleaned: afterTime } = parseTimeFromText(afterDate);
   if (time) {

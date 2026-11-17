@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Check,
   ExternalLink,
@@ -16,6 +16,7 @@ import {
   StickyNote,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import type { DriveFileRecord } from '../services/googleWorkspace';
 import type { KeepNote, TaskItem } from '../types/workspace';
@@ -40,6 +41,7 @@ interface NotesDriveViewProps {
   onCreateDriveDoc: (title: string, content: string) => void;
   onReadDriveDoc: (file: DriveFileRecord) => void;
   onSaveDriveDocContent: (file: DriveFileRecord, content: string) => void;
+  onCloseDriveDoc: () => void;
   onAttachDriveFileToTask: (taskId: string, file: DriveFileRecord) => void;
 }
 
@@ -71,6 +73,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
   onCreateDriveDoc,
   onReadDriveDoc,
   onSaveDriveDocContent,
+  onCloseDriveDoc,
   onAttachDriveFileToTask,
 }) => {
   const [noteTitle, setNoteTitle] = useState('');
@@ -79,13 +82,17 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
   const [noteTint, setNoteTint] = useState<KeepNote['tint']>('default');
   const [checklistDraft, setChecklistDraft] = useState('');
 
-  // Inline note editing state
+  // Filtri di consultazione note
+  const [noteSearch, setNoteSearch] = useState('');
+  const [onlyPinned, setOnlyPinned] = useState(false);
+
+  // Modifica inline nota
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editBody, setEditBody] = useState('');
   const [editTags, setEditTags] = useState('');
 
-  // Drive docs reader/writer state
+  // Lettore/editor Drive Docs
   const [driveSearch, setDriveSearch] = useState('');
   const [newDocTitle, setNewDocTitle] = useState('');
   const [newDocContent, setNewDocContent] = useState('');
@@ -105,7 +112,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
       .map((text, idx) => ({ id: `cl-${Date.now()}-${idx}`, text, done: false }));
 
     onAddNote({
-      title: noteTitle.trim() || 'Untitled Note',
+      title: noteTitle.trim() || 'Nota senza titolo',
       body: noteBody.trim(),
       checklist,
       pinned: false,
@@ -131,7 +138,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
 
   const saveEditedNote = (noteId: string) => {
     onUpdateNote(noteId, {
-      title: editTitle.trim() || 'Untitled Note',
+      title: editTitle.trim() || 'Nota senza titolo',
       body: editBody,
       tags: editTags
         .split(',')
@@ -151,7 +158,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
         const rawArr = Array.isArray(parsed) ? parsed : [parsed];
         const imported: KeepNote[] = rawArr.map((item, idx) => ({
           id: `imp-${Date.now()}-${idx}`,
-          title: item.title || 'Imported Keep Note',
+          title: item.title || 'Nota Keep Importata',
           body: item.textContent || item.body || '',
           checklist: Array.isArray(item.listContent)
             ? item.listContent.map((li: { text?: string; isChecked?: boolean }, i: number) => ({
@@ -164,12 +171,12 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
           tint: 'default',
           tags: Array.isArray(item.labels)
             ? item.labels.map((l: { name?: string }) => l.name || '').filter(Boolean)
-            : ['Keep Import'],
+            : ['Keep'],
           updatedAt: new Date().toISOString(),
         }));
         onImportKeepNotes(imported);
       } catch {
-        // Invalid JSON ignored
+        // Ignora JSON non validi
       }
     };
     reader.readAsText(file);
@@ -179,12 +186,25 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
   const handleCreateDocSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDocTitle.trim()) return;
-    onCreateDriveDoc(newDocTitle.trim(), newDocContent.trim() || 'Created with Cadence Workspace');
+    onCreateDriveDoc(newDocTitle.trim(), newDocContent.trim() || 'Creato con Cadence Workspace');
     setNewDocTitle('');
     setNewDocContent('');
   };
 
-  const sortedNotes = [...notes].sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  const filteredNotes = useMemo(() => {
+    const q = noteSearch.trim().toLowerCase();
+    return [...notes]
+      .filter((n) => {
+        if (onlyPinned && !n.pinned) return false;
+        if (!q) return true;
+        const hay = `${n.title} ${n.body} ${n.tags.join(' ')} ${n.checklist
+          .map((c) => c.text)
+          .join(' ')}`.toLowerCase();
+        return hay.includes(q);
+      })
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  }, [notes, noteSearch, onlyPinned]);
+
   const currentEditorText = docDraftContent ?? activeDriveDocContent;
 
   return (
@@ -192,16 +212,16 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            Notes &amp; Google Drive Documents (Read / Write)
+            Note &amp; Documenti Google Drive (Lettura / Scrittura)
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Create, edit, and export Keep-style notes and read/write collaborative documents on Google Drive
+            Crea, filtra ed esporta note in stile Keep e leggi o modifica documenti su Google Drive
           </p>
         </div>
 
         <label className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111827] px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap cursor-pointer">
           <Upload className="h-3.5 w-3.5" />
-          Import Keep Takeout JSON
+          Importa JSON Keep Takeout
           <input
             type="file"
             accept=".json,application/json"
@@ -211,16 +231,16 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
         </label>
       </div>
 
-      {/* Note Composer + Editable Pinboard */}
+      {/* Compositore Note + Bacheca filtrabile */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <form
           onSubmit={handleCreateNote}
-          className="lg:col-span-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-3"
+          className="lg:col-span-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5 space-y-3"
         >
           <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
             <StickyNote className="h-4 w-4 text-amber-500" />
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              New Note
+              Nuova Nota
             </h3>
           </div>
 
@@ -228,7 +248,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
             type="text"
             value={noteTitle}
             onChange={(e) => setNoteTitle(e.target.value)}
-            placeholder="Note title"
+            placeholder="Titolo nota"
             className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-sm text-slate-900 dark:text-slate-100"
           />
 
@@ -236,7 +256,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
             rows={3}
             value={noteBody}
             onChange={(e) => setNoteBody(e.target.value)}
-            placeholder="Write a note..."
+            placeholder="Scrivi un appunto..."
             className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-sm text-slate-900 dark:text-slate-100"
           />
 
@@ -244,7 +264,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
             rows={2}
             value={checklistDraft}
             onChange={(e) => setChecklistDraft(e.target.value)}
-            placeholder="Optional checklist items (one per line)"
+            placeholder="Voci checklist opzionali (una per riga)"
             className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
           />
 
@@ -253,7 +273,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
               type="text"
               value={noteTags}
               onChange={(e) => setNoteTags(e.target.value)}
-              placeholder="Tags (comma-separated)"
+              placeholder="Tag (separati da virgola)"
               className="flex-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
             />
             <select
@@ -261,11 +281,11 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
               onChange={(e) => setNoteTint(e.target.value as KeepNote['tint'])}
               className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
             >
-              <option value="default">Neutral</option>
-              <option value="slate">Slate</option>
-              <option value="blue">Cobalt</option>
-              <option value="emerald">Sage</option>
-              <option value="amber">Amber</option>
+              <option value="default">Neutro</option>
+              <option value="slate">Ardesia</option>
+              <option value="blue">Blu</option>
+              <option value="emerald">Salvia</option>
+              <option value="amber">Ambra</option>
             </select>
           </div>
 
@@ -273,167 +293,206 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
             type="submit"
             className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 cursor-pointer"
           >
-            <Plus className="h-3.5 w-3.5" /> Save Note
+            <Plus className="h-3.5 w-3.5" /> Salva Nota
           </button>
         </form>
 
-        <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {sortedNotes.map((note) => {
-            const isEditing = editingNoteId === note.id;
-            return (
-              <div
-                key={note.id}
-                className={`rounded-xl border p-4 flex flex-col justify-between gap-3 ${TINT_CLASSES[note.tint]}`}
-              >
-                {isEditing ? (
-                  <div className="space-y-2.5">
-                    <input
-                      type="text"
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0B0F17] px-2.5 py-1.5 text-sm font-medium text-slate-900 dark:text-slate-100"
-                    />
-                    <textarea
-                      rows={4}
-                      value={editBody}
-                      onChange={(e) => setEditBody(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0B0F17] px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
-                    />
-                    <input
-                      type="text"
-                      value={editTags}
-                      onChange={(e) => setEditTags(e.target.value)}
-                      placeholder="Tags"
-                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0B0F17] px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100"
-                    />
-                    <div className="flex justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setEditingNoteId(null)}
-                        className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1 text-xs cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => saveEditedNote(note.id)}
-                        className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 cursor-pointer"
-                      >
-                        Save
-                      </button>
+        <div className="lg:col-span-8 space-y-4">
+          {/* Barra filtro note */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-3.5 py-2.5">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={noteSearch}
+                onChange={(e) => setNoteSearch(e.target.value)}
+                placeholder="Cerca tra titoli, testo, tag o checklist..."
+                className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setOnlyPinned((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
+                onlyPinned
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              <Pin className="h-3.5 w-3.5" /> Solo Fissate
+            </button>
+            <span className="text-xs text-slate-400 tabular-nums ml-auto">
+              {filteredNotes.length} note
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredNotes.map((note) => {
+              const isEditing = editingNoteId === note.id;
+              const doneChecklist = note.checklist.filter((c) => c.done).length;
+              return (
+                <div
+                  key={note.id}
+                  className={`rounded-xl border p-4 flex flex-col justify-between gap-3 ${TINT_CLASSES[note.tint]}`}
+                >
+                  {isEditing ? (
+                    <div className="space-y-2.5">
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0B0F17] px-2.5 py-1.5 text-sm font-medium text-slate-900 dark:text-slate-100"
+                      />
+                      <textarea
+                        rows={4}
+                        value={editBody}
+                        onChange={(e) => setEditBody(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0B0F17] px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                      />
+                      <input
+                        type="text"
+                        value={editTags}
+                        onChange={(e) => setEditTags(e.target.value)}
+                        placeholder="Tag"
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-[#0B0F17] px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingNoteId(null)}
+                          className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1 text-xs cursor-pointer"
+                        >
+                          Annulla
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => saveEditedNote(note.id)}
+                          className="rounded-lg bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 cursor-pointer"
+                        >
+                          Salva
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <div>
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {note.title}
-                        </h4>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => startEditingNote(note)}
-                            title="Edit note"
-                            className="rounded p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          {isGoogleConnected && (
+                  ) : (
+                    <>
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-snug">
+                            {note.title}
+                          </h4>
+                          <div className="flex items-center gap-1 shrink-0">
                             <button
                               type="button"
-                              onClick={() => onExportNoteToDrive(note)}
-                              title="Save note as Google Drive Doc"
-                              className="rounded p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
+                              onClick={() => startEditingNote(note)}
+                              title="Modifica nota"
+                              className="rounded p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
                             >
-                              <FilePlus className="h-3.5 w-3.5" />
+                              <Pencil className="h-3.5 w-3.5" />
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => onTogglePinNote(note.id)}
-                            title={note.pinned ? 'Unpin note' : 'Pin note'}
-                            className={`rounded p-1 cursor-pointer ${
-                              note.pinned
-                                ? 'text-blue-600 dark:text-blue-400'
-                                : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                            }`}
-                          >
-                            <Pin className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onDeleteNote(note.id)}
-                            aria-label={`Delete note ${note.title}`}
-                            className="rounded p-1 text-slate-400 hover:text-red-500 cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {note.body && (
-                        <p className="mt-2 text-xs leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-line">
-                          {note.body}
-                        </p>
-                      )}
-
-                      {note.checklist.length > 0 && (
-                        <div className="mt-3 space-y-1.5">
-                          {note.checklist.map((line) => (
-                            <label
-                              key={line.id}
-                              className="flex items-start gap-2 text-xs cursor-pointer"
-                            >
+                            {isGoogleConnected && (
                               <button
                                 type="button"
-                                onClick={() => onToggleNoteChecklist(note.id, line.id)}
-                                className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border cursor-pointer ${
-                                  line.done
-                                    ? 'border-emerald-600 bg-emerald-600 text-white'
-                                    : 'border-slate-300 dark:border-slate-600'
-                                }`}
+                                onClick={() => onExportNoteToDrive(note)}
+                                title="Salva come Google Doc su Drive"
+                                className="rounded p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                               >
-                                {line.done && <Check className="h-2.5 w-2.5" />}
+                                <FilePlus className="h-3.5 w-3.5" />
                               </button>
-                              <span
-                                className={
-                                  line.done
-                                    ? 'line-through text-slate-400'
-                                    : 'text-slate-700 dark:text-slate-300'
-                                }
-                              >
-                                {line.text}
-                              </span>
-                            </label>
-                          ))}
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onTogglePinNote(note.id)}
+                              title={note.pinned ? 'Rimuovi fissaggio' : 'Fissa in alto'}
+                              className={`rounded p-1 cursor-pointer ${
+                                note.pinned
+                                  ? 'text-blue-600 dark:text-blue-400'
+                                  : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                              }`}
+                            >
+                              <Pin className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteNote(note.id)}
+                              aria-label={`Elimina nota ${note.title}`}
+                              className="rounded p-1 text-slate-400 hover:text-red-500 cursor-pointer"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200/60 dark:border-slate-800/70">
-                      <span>{note.tags.length > 0 ? note.tags.join(' · ') : 'General'}</span>
-                      <span>{note.pinned ? 'Pinned' : 'Note'}</span>
-                    </div>
-                  </>
-                )}
+                        {note.body && (
+                          <p className="mt-2 text-xs leading-relaxed text-slate-700 dark:text-slate-300 whitespace-pre-line">
+                            {note.body}
+                          </p>
+                        )}
+
+                        {note.checklist.length > 0 && (
+                          <div className="mt-3 space-y-1.5">
+                            <div className="text-[11px] font-mono text-slate-400 tabular-nums">
+                              Checklist: {doneChecklist}/{note.checklist.length}
+                            </div>
+                            {note.checklist.map((line) => (
+                              <div
+                                key={line.id}
+                                className="flex items-start gap-2 text-xs"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleNoteChecklist(note.id, line.id)}
+                                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border cursor-pointer ${
+                                    line.done
+                                      ? 'border-emerald-600 bg-emerald-600 text-white'
+                                      : 'border-slate-300 dark:border-slate-600'
+                                  }`}
+                                >
+                                  {line.done && <Check className="h-2.5 w-2.5" />}
+                                </button>
+                                <span
+                                  className={
+                                    line.done
+                                      ? 'line-through text-slate-400'
+                                      : 'text-slate-700 dark:text-slate-300'
+                                  }
+                                >
+                                  {line.text}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-200/60 dark:border-slate-800/70">
+                        <span>{note.tags.length > 0 ? note.tags.join(' · ') : 'Generale'}</span>
+                        <span>{note.pinned ? 'Fissata' : 'Nota'}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+            {filteredNotes.length === 0 && (
+              <div className="md:col-span-2 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 py-10 text-center text-xs text-slate-400">
+                Nessuna nota corrisponde ai filtri attuali.
               </div>
-            );
-          })}
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Google Drive Document Reader & Writer */}
-      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-5 space-y-4">
+      {/* Lettore & Editor Documenti Google Drive */}
+      <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] p-4 sm:p-5 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-2">
             <FolderOpen className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <div>
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                Google Drive Document Reader &amp; Writer
+                Lettore &amp; Editor Documenti Google Drive
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Browse Drive documents, read and edit their text directly, create new Docs, and attach files to project tasks
+                Sfoglia i file Drive, leggi e modifica testi, crea nuovi Google Docs e collegali ai task
               </p>
             </div>
           </div>
@@ -448,7 +507,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') onRefreshDriveFiles(driveSearch);
                 }}
-                placeholder="Search Drive files..."
+                placeholder="Cerca file Drive..."
                 className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-slate-100"
               />
             </div>
@@ -459,33 +518,32 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
               className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap cursor-pointer"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loadingDrive ? 'animate-spin' : ''}`} />
-              {isGoogleConnected ? 'Load Drive Files' : 'Connect Google for Drive'}
+              {isGoogleConnected ? 'Carica File Drive' : 'Connetti Google per Drive'}
             </button>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Create collaborative doc */}
           <form
             onSubmit={handleCreateDocSubmit}
             className="lg:col-span-4 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] p-4 space-y-3"
           >
             <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
               <FilePlus className="h-3.5 w-3.5 text-blue-500" />
-              Create New Google Doc
+              Crea Nuovo Google Doc
             </h4>
             <input
               type="text"
               value={newDocTitle}
               onChange={(e) => setNewDocTitle(e.target.value)}
-              placeholder="Document title..."
+              placeholder="Titolo documento..."
               className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
             />
             <textarea
               rows={4}
               value={newDocContent}
               onChange={(e) => setNewDocContent(e.target.value)}
-              placeholder="Initial document body..."
+              placeholder="Testo iniziale del documento..."
               className="w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#111827] px-3 py-2 text-xs text-slate-900 dark:text-slate-100"
             />
             <button
@@ -493,15 +551,14 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
               disabled={!isGoogleConnected}
               className="w-full rounded-lg bg-slate-900 dark:bg-slate-100 py-2 text-xs font-medium text-white dark:text-slate-900 hover:opacity-90 disabled:opacity-50 cursor-pointer"
             >
-              Create in Google Drive
+              Crea su Google Drive
             </button>
           </form>
 
-          {/* Drive file list + Inline Document Reader/Writer */}
           <div className="lg:col-span-8 space-y-4">
-            <div className="flex items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <span className="text-slate-500 dark:text-slate-400">
-                Target task for quick attachment:
+                Task destinazione per allegato rapido:
               </span>
               <select
                 value={attachTargetTaskId}
@@ -519,15 +576,15 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
             {driveFiles.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-800 p-8 text-center text-xs text-slate-500 dark:text-slate-400">
                 {isGoogleConnected
-                  ? 'Click "Load Drive Files" to browse, read, and edit documents in Google Drive.'
-                  : 'Connect Google to read, edit, and attach documents from Google Drive.'}
+                  ? 'Clicca "Carica File Drive" per sfogliare, leggere e modificare documenti Google Drive.'
+                  : 'Connetti Google per leggere, modificare e allegare documenti da Google Drive.'}
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-60 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg px-3">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-lg px-3">
                 {driveFiles.map((file) => (
                   <div
                     key={file.id}
-                    className="py-2.5 flex items-center justify-between gap-3"
+                    className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <FileText className="h-4 w-4 text-blue-500 shrink-0" />
@@ -536,12 +593,12 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
                           {file.name}
                         </p>
                         <p className="text-[11px] text-slate-400 truncate">
-                          {file.modifiedTime ? `Modified ${file.modifiedTime.slice(0, 10)}` : file.mimeType}
+                          {file.modifiedTime ? `Modificato ${file.modifiedTime.slice(0, 10)}` : file.mimeType}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                       <button
                         type="button"
                         onClick={() => {
@@ -550,7 +607,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
                         }}
                         className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                       >
-                        <FileEdit className="h-3 w-3" /> Read / Edit
+                        <FileEdit className="h-3 w-3" /> Leggi / Modifica
                       </button>
                       {attachTargetTaskId && (
                         <button
@@ -558,7 +615,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
                           onClick={() => onAttachDriveFileToTask(attachTargetTaskId, file)}
                           className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                         >
-                          <Paperclip className="h-3 w-3" /> Attach
+                          <Paperclip className="h-3 w-3" /> Allega
                         </button>
                       )}
                       {file.webViewLink && (
@@ -568,7 +625,7 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 rounded-lg bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
                         >
-                          Open <ExternalLink className="h-3 w-3" />
+                          Apri <ExternalLink className="h-3 w-3" />
                         </a>
                       )}
                     </div>
@@ -579,27 +636,37 @@ export const NotesDriveView: React.FC<NotesDriveViewProps> = ({
 
             {activeDriveDoc && (
               <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#0B0F17] p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                      Document Editor: {activeDriveDoc.name}
+                      Editor Documento: {activeDriveDoc.name}
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       {loadingDocContent
-                        ? 'Loading document text...'
-                        : 'Edit text below and save changes back to Google Drive'}
+                        ? 'Caricamento testo in corso...'
+                        : `${currentEditorText.length} caratteri · Modifica e salva su Drive`}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    disabled={loadingDocContent}
-                    onClick={() =>
-                      onSaveDriveDocContent(activeDriveDoc, currentEditorText)
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                  >
-                    <Save className="h-3.5 w-3.5" /> Save to Drive
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={loadingDocContent}
+                      onClick={() =>
+                        onSaveDriveDocContent(activeDriveDoc, currentEditorText)
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Save className="h-3.5 w-3.5" /> Salva su Drive
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onCloseDriveDoc}
+                      aria-label="Chiudi editor documento"
+                      className="rounded-lg border border-slate-200 dark:border-slate-700 p-1.5 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 <textarea
